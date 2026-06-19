@@ -1,0 +1,60 @@
+import db from "./db.js";
+import { recordInteraction } from "./reputation.js";
+
+const RECOGNITION_TITLES = new Set([
+  "Diamond Hand",
+  "Signal Reader",
+  "Conviction Holder",
+  "Council of Shillers",
+]);
+
+export function registerPulseHandler({ bot, groupChatId, founderUserId }) {
+  bot.on("callback_query", async (ctx, next) => {
+    const data = ctx.callbackQuery.data || "";
+    if (!data.startsWith("pulse:")) return next();
+
+    const [, pulseIdStr, action] = data.split(":");
+    const pulseId = parseInt(pulseIdStr, 10);
+
+    const pulse = db.prepare("SELECT * FROM pulses WHERE pulse_id = ?").get(pulseId);
+
+    if (!pulse || !pulse.active || pulse.expires_at <= Date.now()) {
+      await ctx.answerCbQuery("This Pulse has already faded.", { show_alert: false });
+      return;
+    }
+
+    const userId = ctx.from.id;
+    const username = ctx.from.username;
+
+    const result = recordInteraction(userId, username, pulseId, action);
+
+    if (result.alreadyInteracted) {
+      await ctx.answerCbQuery("You already responded to this Pulse.");
+      return;
+    }
+
+    await ctx.answerCbQuery("Recorded.");
+
+    if (result.leveledUp && RECOGNITION_TITLES.has(result.newTitle)) {
+      try {
+        await bot.telegram.sendMessage(
+          groupChatId,
+          `⚠ SYSTEM NOTICE\n@${username || userId} has been classified as: ${result.newTitle}`
+        );
+      } catch (err) {
+        console.error("[pulseHandler] recognition message failed:", err.message);
+      }
+    }
+
+    if (result.roleChanged && founderUserId) {
+      try {
+        await bot.telegram.sendMessage(
+          founderUserId,
+          `⚠ ROLE UNLOCK\n@${username || userId} has reached ${result.newRole} (${result.newTitle}).`
+        );
+      } catch {
+        console.warn("[pulseHandler] could not DM founder about role change");
+      }
+    }
+  });
+}
