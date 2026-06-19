@@ -1,26 +1,35 @@
 import db from "./db.js";
 import { pickPulseTemplate, pickDurationMinutes } from "./pulses.js";
-import { getUsersForDecayCheck, decayRole } from "./reputation.js";
+import { getUsersForDecayCheck, decayRole, getRandomActiveUser } from "./reputation.js";
 
 const MIN_INTERVAL_MIN = parseInt(process.env.PULSE_MIN_INTERVAL_MINUTES || "240", 10);
 const MAX_INTERVAL_MIN = parseInt(process.env.PULSE_MAX_INTERVAL_MINUTES || "1440", 10);
 const FIRE_CHANCE = parseFloat(process.env.PULSE_FIRE_CHANCE || "0.4");
 
+const SPOTLIGHT_MIN_MIN = parseInt(process.env.SPOTLIGHT_MIN_INTERVAL_MINUTES || "360", 10);
+const SPOTLIGHT_MAX_MIN = parseInt(process.env.SPOTLIGHT_MAX_INTERVAL_MINUTES || "1440", 10);
+const SPOTLIGHT_FIRE_CHANCE = parseFloat(process.env.SPOTLIGHT_FIRE_CHANCE || "0.3");
+
+const CARD_EXPIRY_MIN = parseInt(process.env.CARD_EXPIRY_MINUTES || "180", 10);
+
 const CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const EXPIRY_SWEEP_MS = 60 * 1000;
 const DECAY_CHECK_MS = 6 * 60 * 60 * 1000;
+const SPOTLIGHT_CHECK_MS = 30 * 60 * 1000;
 
 let lastPulseAt = 0;
+let lastSpotlightAt = 0;
 
-function minutesSinceLastPulse() {
-  if (!lastPulseAt) return Infinity;
-  return (Date.now() - lastPulseAt) / 60000;
+function minutesSince(timestamp) {
+  if (!timestamp) return Infinity;
+  return (Date.now() - timestamp) / 60000;
 }
 
 export function startScheduler({ bot, groupChatId, founderUserId }) {
+  // Pulse generation
   setInterval(async () => {
     try {
-      const elapsed = minutesSinceLastPulse();
+      const elapsed = minutesSince(lastPulseAt);
       if (elapsed < MIN_INTERVAL_MIN) return;
 
       const mustFire = elapsed >= MAX_INTERVAL_MIN;
@@ -35,15 +44,40 @@ export function startScheduler({ bot, groupChatId, founderUserId }) {
     }
   }, CHECK_INTERVAL_MS);
 
+  // Pulse expiry sweep
   setInterval(() => {
     try {
       const now = Date.now();
       db.prepare("UPDATE pulses SET active = 0 WHERE active = 1 AND expires_at <= ?").run(now);
     } catch (err) {
-      console.error("[scheduler] expiry sweep failed:", err.message);
+      console.error("[scheduler] pulse expiry sweep failed:", err.message);
     }
   }, EXPIRY_SWEEP_MS);
 
+  // Raid card expiry sweep — cards that never reached vote threshold expire quietly
+  setInterval(async () => {
+    try {
+      const now = Date.now();
+      const expiring = db
+        .prepare("SELECT * FROM raid_cards WHERE stage = 'voting' AND expires_at <= ?")
+        .all(now);
+
+      for (const card of expiring) {
+        db.prepare("UPDATE raid_cards SET stage = 'expired' WHERE card_id = ?").run(card.card_id);
+        try {
+          await bot.telegram.editMessageReplyMarkup(card.chat_id, card.message_id, undefined, {
+            inline_keyboard: [],
+          });
+        } catch {
+          // message may already be gone — non-fatal
+        }
+      }
+    } catch (err) {
+      console.error("[scheduler] card expiry sweep failed:", err.message);
+    }
+  }, EXPIRY_SWEEP_MS);
+
+  // Role decay check
   setInterval(async () => {
     try {
       const decaying = getUsersForDecayCheck();
@@ -64,6 +98,30 @@ export function startScheduler({ bot, groupChatId, founderUserId }) {
       console.error("[scheduler] decay check failed:", err.message);
     }
   }, DECAY_CHECK_MS);
+
+  // Random status spotlight
+  setInterval(async () => {
+    try {
+      const elapsed = minutesSince(lastSpotlightAt);
+      if (elapsed < SPOTLIGHT_MIN_MIN) return;
+
+      const mustFire = elapsed >= SPOTLIGHT_MAX_MIN;
+      const roll = Math.random();
+
+      if (mustFire || roll < SPOTLIGHT_FIRE_CHANCE) {
+        const user = getRandomActiveUser();
+        if (user) {
+          await bot.telegram.sendMessage(
+            groupChatId,
+            `⚠ SYSTEM SCAN\n@${user.username || user.user_id} — ${user.title}. Status unchanged. Activity noted.`
+          );
+        }
+        lastSpotlightAt = Date.now();
+      }
+    } catch (err) {
+      console.error("[scheduler] spotlight check failed:", err.message);
+    }
+  }, SPOTLIGHT_CHECK_MS);
 }
 
 export async function firePulse({ bot, groupChatId }) {
