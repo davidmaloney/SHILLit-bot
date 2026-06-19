@@ -1,7 +1,7 @@
 {
   "name": "shillit-bot",
-  "version": "2.0.0",
-  "description": "Shillit Bot — Signal Network, Pulses, and Community Raid system for the shillit.fun Telegram community",
+  "version": "3.0.0",
+  "description": "Shillit Bot — Signal Network, Pulses, and X comment-raid system for the shillit.fun Telegram community",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
