@@ -45,8 +45,9 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
 
   bot.command("profile", (ctx) => {
     const user = getOrCreateUser(ctx.from.id, ctx.from.username);
+    const displayRole = isFounder(ctx, founderUserId) ? "founder" : user.current_role;
     ctx.reply(
-      `Title: ${user.title}\nRole: ${user.current_role}\nFirst seen: ${new Date(
+      `Title: ${user.title}\nRole: ${displayRole}\nFirst seen: ${new Date(
         user.first_seen
       ).toLocaleDateString()}`
     );
