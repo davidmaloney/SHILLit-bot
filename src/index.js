@@ -5,6 +5,7 @@ import { registerCommands } from "./commands.js";
 import { registerPulseHandler } from "./pulseHandler.js";
 import { registerRaidHandler } from "./raidHandler.js";
 import { registerXCardWatcher } from "./xCardWatcher.js";
+import { registerRepostHandler } from "./repostHandler.js";
 import { registerWelcome } from "./welcome.js";
 import { startScheduler } from "./scheduler.js";
 import { setFounder } from "./reputation.js";
@@ -33,7 +34,8 @@ if (FOUNDER_USER_ID) {
 // their own prefix without colliding.
 registerCommands({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 registerWelcome({ bot });
-registerXCardWatcher({ bot });
+registerXCardWatcher({ bot, founderUserId: FOUNDER_USER_ID });
+registerRepostHandler({ bot });
 registerPulseHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 registerRaidHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 
