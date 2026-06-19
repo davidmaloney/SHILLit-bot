@@ -69,6 +69,8 @@ function raidKeyboard(cardId, url) {
   };
 }
 
+export { raidCaption, raidKeyboard };
+
 function isMostVoted(card) {
   const top = db
     .prepare(
