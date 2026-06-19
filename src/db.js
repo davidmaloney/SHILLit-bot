@@ -1,0 +1,116 @@
+import Database from "better-sqlite3";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DB_PATH = path.join(__dirname, "..", "data", "shillit-bot.db");
+
+export const db = new Database(DB_PATH);
+db.pragma("journal_mode = WAL");
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    title TEXT NOT NULL DEFAULT 'Lurker',
+    conviction_score INTEGER NOT NULL DEFAULT 0,
+    first_seen INTEGER NOT NULL,
+    last_seen INTEGER NOT NULL,
+    believer_count INTEGER NOT NULL DEFAULT 0,
+    current_role TEXT NOT NULL DEFAULT 'member',
+    role_since INTEGER,
+    streak_count INTEGER NOT NULL DEFAULT 0,
+    last_streak_day TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS pulses (
+    pulse_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pulse_type TEXT NOT NULL,
+    pulse_text TEXT NOT NULL,
+    rarity TEXT NOT NULL DEFAULT 'common',
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    message_id INTEGER,
+    chat_id INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS believers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    pulse_id INTEGER NOT NULL,
+    interaction_type TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    UNIQUE(user_id, pulse_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS titles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title_name TEXT NOT NULL UNIQUE,
+    threshold INTEGER NOT NULL,
+    role_unlock TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS link_cards (
+    card_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    message_id INTEGER,
+    posted_by INTEGER,
+    url TEXT NOT NULL,
+    title TEXT,
+    description TEXT,
+    image_url TEXT,
+    stage TEXT NOT NULL DEFAULT 'rating',
+    rating_total INTEGER NOT NULL DEFAULT 0,
+    rating_count INTEGER NOT NULL DEFAULT 0,
+    raid_count INTEGER NOT NULL DEFAULT 0,
+    raid_target INTEGER NOT NULL DEFAULT 10,
+    created_at INTEGER NOT NULL,
+    awaiting_image_until INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS link_ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    score INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL,
+    UNIQUE(card_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS raid_joins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL,
+    UNIQUE(card_id, user_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_believers_user ON believers(user_id);
+  CREATE INDEX IF NOT EXISTS idx_believers_pulse ON believers(pulse_id);
+  CREATE INDEX IF NOT EXISTS idx_pulses_active ON pulses(active);
+  CREATE INDEX IF NOT EXISTS idx_ratings_card ON link_ratings(card_id);
+  CREATE INDEX IF NOT EXISTS idx_raidjoins_card ON raid_joins(card_id);
+`);
+
+// Seed title thresholds if empty
+const titleCount = db.prepare("SELECT COUNT(*) AS c FROM titles").get().c;
+if (titleCount === 0) {
+  const insert = db.prepare(
+    "INSERT INTO titles (title_name, threshold, role_unlock) VALUES (?, ?, ?)"
+  );
+  const seed = db.transaction((rows) => {
+    for (const row of rows) insert.run(row.title, row.threshold, row.role);
+  });
+  seed([
+    { title: "Lurker", threshold: 0, role: null },
+    { title: "Shill Initiate", threshold: 5, role: null },
+    { title: "Bag Holder", threshold: 15, role: null },
+    { title: "Diamond Hand", threshold: 35, role: "moderator" },
+    { title: "Signal Reader", threshold: 60, role: "moderator" },
+    { title: "Conviction Holder", threshold: 100, role: "admin" },
+    { title: "Council of Shillers", threshold: 160, role: "admin" },
+  ]);
+}
+
+export default db;
