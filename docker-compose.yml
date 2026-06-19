@@ -1,0 +1,20 @@
+services:
+  shillit-bot:
+    build: .
+    container_name: shillit_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - bot_data:/app/data
+    # No ports exposed — bot uses outbound polling to Telegram only.
+    # Does not touch tokensite's network, ports, or containers.
+    networks:
+      - shillit_bot_network
+
+networks:
+  shillit_bot_network:
+    driver: bridge
+
+volumes:
+  bot_data:
