@@ -34,7 +34,23 @@ function titleForScore(score) {
   return result;
 }
 
-// Generic conviction award used by both Pulses and Raid/rating interactions.
+// Title-rank index (0 = Lurker, higher = further up the hierarchy).
+// Used to gate features by title tier rather than just bot role, since
+// Diamond Hand and Signal Reader share the "moderator" role but are
+// different tiers.
+function titleRankIndex(titleName) {
+  const titles = getAllTitles();
+  const idx = titles.findIndex((t) => t.title_name === titleName);
+  return idx === -1 ? 0 : idx;
+}
+
+export function userMeetsTitleRank(userId, requiredTitleName) {
+  const user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
+  if (!user) return false;
+  return titleRankIndex(user.title) >= titleRankIndex(requiredTitleName);
+}
+
+// Generic conviction award used by both Pulses and Raid/vote interactions.
 // Returns { user, leveledUp, newTitle, roleChanged, newRole }
 export function awardConviction(userId, username, amount) {
   const user = getOrCreateUser(userId, username);
@@ -141,6 +157,17 @@ export function getTopUsers(limit = 10) {
   return db
     .prepare("SELECT * FROM users ORDER BY conviction_score DESC LIMIT ?")
     .all(limit);
+}
+
+export function getRandomActiveUser() {
+  // "Active" = seen in the last 14 days, has at least Shill Initiate title
+  // so brand new lurkers aren't spotlighted with nothing to show.
+  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  return db
+    .prepare(
+      `SELECT * FROM users WHERE last_seen >= ? AND title != 'Lurker' ORDER BY RANDOM() LIMIT 1`
+    )
+    .get(cutoff);
 }
 
 export function getAdminCandidates() {
