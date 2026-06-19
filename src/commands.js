@@ -1,12 +1,15 @@
-import db from "./db.js";
+import db, { setSetting } from "./db.js";
 import {
   getOrCreateUser,
   getProfile,
   getTopUsers,
   getAdminCandidates,
   manuallySetRole,
+  userMeetsTitleRank,
 } from "./reputation.js";
 import { firePulse } from "./scheduler.js";
+
+const TOP_TITLE = "Council of Shillers";
 
 function isFounder(ctx, founderUserId) {
   return String(ctx.from.id) === String(founderUserId);
@@ -34,8 +37,8 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
         "/history — your recent Pulse interactions",
         "/status — network status",
         "",
-        "Post any link in the chat to start a rating card.",
-        "Once it gets enough ratings, it unlocks into a raid.",
+        "Post an X link with your comment in the same message to start a",
+        "comment-raid vote card. Requires Diamond Hand status or higher.",
       ].join("\n")
     );
   });
@@ -82,11 +85,38 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
     const activePulses = db.prepare("SELECT COUNT(*) AS c FROM pulses WHERE active = 1").get().c;
     const totalUsers = db.prepare("SELECT COUNT(*) AS c FROM users").get().c;
     const activeRaids = db
-      .prepare("SELECT COUNT(*) AS c FROM link_cards WHERE stage = 'raid'")
+      .prepare("SELECT COUNT(*) AS c FROM raid_cards WHERE stage = 'raid'")
+      .get().c;
+    const votingCards = db
+      .prepare("SELECT COUNT(*) AS c FROM raid_cards WHERE stage = 'voting'")
       .get().c;
     ctx.reply(
-      `Active Pulses: ${activePulses}\nActive Raids: ${activeRaids}\nKnown presences in the network: ${totalUsers}`
+      `Active Pulses: ${activePulses}\nCards being voted on: ${votingCards}\nActive Raids: ${activeRaids}\nKnown presences in the network: ${totalUsers}`
     );
+  });
+
+  // --- Hidden: image change, available to Founder and Council of Shillers only ---
+  // Deliberately not listed in /help — discovered, not announced.
+  bot.command("set_card_image", async (ctx) => {
+    const userId = ctx.from.id;
+    const isFounderUser = isFounder(ctx, founderUserId);
+    const qualifies = userMeetsTitleRank(userId, TOP_TITLE);
+
+    if (!isFounderUser && !qualifies) {
+      // Stay silent rather than revealing the command exists to those who
+      // don't qualify — no error message, no hint.
+      return;
+    }
+
+    const replyPhoto = ctx.message.reply_to_message?.photo;
+    if (!replyPhoto) {
+      await ctx.reply("Reply to a photo with /set_card_image to set it as the card image.");
+      return;
+    }
+
+    const fileId = replyPhoto[replyPhoto.length - 1].file_id;
+    setSetting("card_image_file_id", fileId);
+    await ctx.reply("Card image updated. New cards will use this image.");
   });
 
   // --- Admin commands ---
@@ -154,14 +184,14 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
     const totalUsers = db.prepare("SELECT COUNT(*) AS c FROM users").get().c;
     const totalPulses = db.prepare("SELECT COUNT(*) AS c FROM pulses").get().c;
     const totalInteractions = db.prepare("SELECT COUNT(*) AS c FROM believers").get().c;
-    const totalCards = db.prepare("SELECT COUNT(*) AS c FROM link_cards").get().c;
+    const totalCards = db.prepare("SELECT COUNT(*) AS c FROM raid_cards").get().c;
     const totalRaidJoins = db.prepare("SELECT COUNT(*) AS c FROM raid_joins").get().c;
     const top = getTopUsers(5);
     const topLines = top.map(
       (u, i) => `${i + 1}. @${u.username || u.user_id} — ${u.title}`
     );
     ctx.reply(
-      `Users: ${totalUsers}\nPulses: ${totalPulses}\nPulse interactions: ${totalInteractions}\nLink cards: ${totalCards}\nRaid joins: ${totalRaidJoins}\n\nTop standing:\n${topLines.join(
+      `Users: ${totalUsers}\nPulses: ${totalPulses}\nPulse interactions: ${totalInteractions}\nRaid cards: ${totalCards}\nRaid joins: ${totalRaidJoins}\n\nTop standing:\n${topLines.join(
         "\n"
       )}`
     );
@@ -178,15 +208,11 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
       ctx.reply("Usage: /set_raid_target <number>");
       return;
     }
-    // Applies to future cards via env-style default stored in memory is not
-    // persistent across restarts, so we store it as a simple key in titles
-    // table reuse would be messy — instead just update active raids' target
-    // and inform the admin to set RAID_DEFAULT_TARGET in .env for permanence.
     const result = db
-      .prepare("UPDATE link_cards SET raid_target = ? WHERE stage = 'raid'")
+      .prepare("UPDATE raid_cards SET raid_target = ? WHERE stage = 'raid'")
       .run(newTarget);
     ctx.reply(
-      `Updated raid target to ${newTarget} for ${result.changes} active raid(s). To make this the permanent default for new raids, set RAID_DEFAULT_TARGET in .env and restart.`
+      `Updated raid target to ${newTarget} for ${result.changes} active raid(s). Set RAID_DEFAULT_TARGET in .env and restart to make this permanent for new raids.`
     );
   });
 
