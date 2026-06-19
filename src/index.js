@@ -4,7 +4,7 @@ import "./db.js";
 import { registerCommands } from "./commands.js";
 import { registerPulseHandler } from "./pulseHandler.js";
 import { registerRaidHandler } from "./raidHandler.js";
-import { registerLinkWatcher } from "./linkWatcher.js";
+import { registerXCardWatcher } from "./xCardWatcher.js";
 import { registerWelcome } from "./welcome.js";
 import { startScheduler } from "./scheduler.js";
 import { setFounder } from "./reputation.js";
@@ -28,13 +28,14 @@ if (FOUNDER_USER_ID) {
   setFounder(FOUNDER_USER_ID, null);
 }
 
-// Order matters: callback_query handlers chain via next() so both pulse
-// and raid/rating button presses get a chance to handle their own prefix.
+// Order matters: callback_query handlers chain via next() so pulse
+// callbacks and raid/vote/remove callbacks each get a chance to handle
+// their own prefix without colliding.
 registerCommands({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 registerWelcome({ bot });
-registerLinkWatcher({ bot });
+registerXCardWatcher({ bot });
 registerPulseHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
-registerRaidHandler({ bot });
+registerRaidHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 
 bot.catch((err, ctx) => {
   console.error(`[bot error] for update ${ctx.updateType}:`, err.message);
