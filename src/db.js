@@ -51,29 +51,28 @@ db.exec(`
     role_unlock TEXT
   );
 
-  CREATE TABLE IF NOT EXISTS link_cards (
+  CREATE TABLE IF NOT EXISTS raid_cards (
     card_id INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id INTEGER NOT NULL,
     message_id INTEGER,
     posted_by INTEGER,
+    posted_by_username TEXT,
     url TEXT NOT NULL,
-    title TEXT,
-    description TEXT,
-    image_url TEXT,
-    stage TEXT NOT NULL DEFAULT 'rating',
-    rating_total INTEGER NOT NULL DEFAULT 0,
-    rating_count INTEGER NOT NULL DEFAULT 0,
+    post_title TEXT,
+    post_description TEXT,
+    comment_text TEXT NOT NULL,
+    stage TEXT NOT NULL DEFAULT 'voting',
+    vote_count INTEGER NOT NULL DEFAULT 0,
     raid_count INTEGER NOT NULL DEFAULT 0,
     raid_target INTEGER NOT NULL DEFAULT 10,
     created_at INTEGER NOT NULL,
-    awaiting_image_until INTEGER
+    expires_at INTEGER NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS link_ratings (
+  CREATE TABLE IF NOT EXISTS card_votes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     card_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
-    score INTEGER NOT NULL,
     timestamp INTEGER NOT NULL,
     UNIQUE(card_id, user_id)
   );
@@ -82,15 +81,22 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     card_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
+    username TEXT,
     timestamp INTEGER NOT NULL,
     UNIQUE(card_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
   );
 
   CREATE INDEX IF NOT EXISTS idx_believers_user ON believers(user_id);
   CREATE INDEX IF NOT EXISTS idx_believers_pulse ON believers(pulse_id);
   CREATE INDEX IF NOT EXISTS idx_pulses_active ON pulses(active);
-  CREATE INDEX IF NOT EXISTS idx_ratings_card ON link_ratings(card_id);
+  CREATE INDEX IF NOT EXISTS idx_votes_card ON card_votes(card_id);
   CREATE INDEX IF NOT EXISTS idx_raidjoins_card ON raid_joins(card_id);
+  CREATE INDEX IF NOT EXISTS idx_raidcards_stage ON raid_cards(stage);
 `);
 
 // Seed title thresholds if empty
@@ -111,6 +117,17 @@ if (titleCount === 0) {
     { title: "Conviction Holder", threshold: 100, role: "admin" },
     { title: "Council of Shillers", threshold: 160, role: "admin" },
   ]);
+}
+
+export function getSetting(key) {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+  return row ? row.value : null;
+}
+
+export function setSetting(key, value) {
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(key, value);
 }
 
 export default db;
