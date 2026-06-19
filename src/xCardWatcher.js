@@ -3,7 +3,7 @@ import db, { getSetting } from "./db.js";
 import { userMeetsTitleRank } from "./reputation.js";
 
 const X_URL_REGEX = /(https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[^\s]+)/i;
-const REQUIRED_TITLE = "Diamond Hand";
+const REQUIRED_TITLE = process.env.RAID_REQUIRED_TITLE || "Diamond Hand";
 const CARD_EXPIRY_MIN = parseInt(process.env.CARD_EXPIRY_MINUTES || "180", 10);
 
 function extractMeta(html) {
@@ -103,7 +103,51 @@ function isMostVoted(cardId) {
   return top.maxVotes > 0 && card.vote_count === top.maxVotes;
 }
 
-export function registerXCardWatcher({ bot }) {
+function getLeadingVotingCard(chatId) {
+  return db
+    .prepare(
+      "SELECT * FROM raid_cards WHERE stage = 'voting' AND chat_id = ? ORDER BY vote_count DESC, created_at DESC LIMIT 1"
+    )
+    .get(chatId);
+}
+
+async function repostVotingCard(bot, card) {
+  const caption = voteCardCaption(card, isMostVoted(card.card_id));
+  const cardImageFileId = getSetting("card_image_file_id");
+  try {
+    // Disable buttons on the old message so there's never two live,
+    // actionable copies of the same card at once.
+    await bot.telegram.editMessageReplyMarkup(card.chat_id, card.message_id, undefined, {
+      inline_keyboard: [],
+    });
+  } catch {
+    // old message may already be gone — non-fatal
+  }
+  try {
+    let sent;
+    if (cardImageFileId) {
+      sent = await bot.telegram.sendPhoto(card.chat_id, cardImageFileId, {
+        caption: `🔄 ${caption}`,
+        parse_mode: "Markdown",
+        reply_markup: voteKeyboard(card.card_id),
+      });
+    } else {
+      sent = await bot.telegram.sendMessage(card.chat_id, `🔄 ${caption}`, {
+        parse_mode: "Markdown",
+        reply_markup: voteKeyboard(card.card_id),
+        disable_web_page_preview: true,
+      });
+    }
+    db.prepare("UPDATE raid_cards SET message_id = ? WHERE card_id = ?").run(
+      sent.message_id,
+      card.card_id
+    );
+  } catch (err) {
+    console.warn("[xCardWatcher] failed to repost voting card:", err.message);
+  }
+}
+
+export function registerXCardWatcher({ bot, founderUserId }) {
   const DEFAULT_TARGET = parseInt(process.env.RAID_DEFAULT_TARGET || "10", 10);
 
   bot.on("message", async (ctx, next) => {
@@ -115,11 +159,12 @@ export function registerXCardWatcher({ bot }) {
 
     const userId = ctx.from.id;
     const username = ctx.from.username;
+    const isFounderUser = String(userId) === String(founderUserId);
 
-    if (!userMeetsTitleRank(userId, REQUIRED_TITLE)) {
+    if (!isFounderUser && !userMeetsTitleRank(userId, REQUIRED_TITLE)) {
       try {
         await ctx.reply(
-          "Comment raids require Diamond Hand status or higher. Keep showing up — it doesn't take long."
+          `Comment raids require ${REQUIRED_TITLE} status or higher. Keep showing up — it doesn't take long.`
         );
       } catch {
         // non-fatal
@@ -199,4 +244,4 @@ export function registerXCardWatcher({ bot }) {
   });
 }
 
-export { refreshVoteCard, isMostVoted, voteKeyboard, escapeMd };
+export { refreshVoteCard, isMostVoted, voteKeyboard, escapeMd, getLeadingVotingCard, repostVotingCard };
