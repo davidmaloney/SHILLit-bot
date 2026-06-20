@@ -14,9 +14,11 @@ const REPOST_EVERY_N = parseInt(process.env.REPOST_EVERY_N_MESSAGES || "15", 10)
 const messageCounters = new Map();
 
 function getLeadingRaidBox(chatId) {
+  // No more raid_count to rank by since the join button was removed —
+  // this just surfaces the most recently created active raid box.
   return db
     .prepare(
-      "SELECT * FROM raid_cards WHERE stage = 'raid' AND chat_id = ? ORDER BY raid_count DESC, created_at DESC LIMIT 1"
+      "SELECT * FROM raid_cards WHERE stage = 'raid' AND chat_id = ? ORDER BY created_at DESC LIMIT 1"
     )
     .get(chatId);
 }
@@ -24,7 +26,7 @@ function getLeadingRaidBox(chatId) {
 async function repostRaidBox(bot, card) {
   const caption = raidCaption(card);
   const cardImageFileId = getSetting("card_image_file_id");
-  const keyboard = raidKeyboard(card.card_id);
+  const keyboard = raidKeyboard();
 
   try {
     // Disable buttons on the old message so there's never two live,
