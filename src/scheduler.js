@@ -51,10 +51,28 @@ export function startScheduler({ bot, groupChatId, founderUserId }) {
   }, CHECK_INTERVAL_MS);
 
   // Pulse expiry sweep
-  setInterval(() => {
+  setInterval(async () => {
     try {
       const now = Date.now();
-      db.prepare("UPDATE pulses SET active = 0 WHERE active = 1 AND expires_at <= ?").run(now);
+      const expiring = db
+        .prepare("SELECT * FROM pulses WHERE active = 1 AND expires_at <= ?")
+        .all(now);
+
+      for (const pulse of expiring) {
+        db.prepare("UPDATE pulses SET active = 0 WHERE pulse_id = ?").run(pulse.pulse_id);
+        if (pulse.message_id && pulse.chat_id) {
+          try {
+            await bot.telegram.editMessageReplyMarkup(
+              pulse.chat_id,
+              pulse.message_id,
+              undefined,
+              { inline_keyboard: [] }
+            );
+          } catch {
+            // message may already be gone — non-fatal
+          }
+        }
+      }
     } catch (err) {
       console.error("[scheduler] pulse expiry sweep failed:", err.message);
     }
@@ -93,7 +111,7 @@ export function startScheduler({ bot, groupChatId, founderUserId }) {
           try {
             await bot.telegram.sendMessage(
               founderUserId,
-              `⚠ ROLE DECAY\n@${u.username || u.user_id} has lost ${u.current_role} status due to inactivity.`
+              `⚠ ROLE DECAY\n@${u.username || u.user_id} has lost ${u.current_role} status and title (was ${u.title}) due to inactivity.`
             );
           } catch {
             console.warn("[scheduler] could not DM founder about decay");
