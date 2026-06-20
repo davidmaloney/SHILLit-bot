@@ -1,42 +1,9 @@
-import fetch from "node-fetch";
 import db, { getSetting } from "./db.js";
 import { userMeetsTitleRank } from "./reputation.js";
 
 const X_URL_REGEX = /(https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[^\s]+)/i;
 const REQUIRED_TITLE = process.env.RAID_REQUIRED_TITLE || "Diamond Hand";
 const CARD_EXPIRY_MIN = parseInt(process.env.CARD_EXPIRY_MINUTES || "180", 10);
-
-function extractMeta(html) {
-  const get = (re) => {
-    const m = html.match(re);
-    return m ? m[1].trim() : null;
-  };
-
-  const title =
-    get(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
-    get(/<title>([^<]+)<\/title>/i);
-
-  const description =
-    get(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ||
-    get(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
-
-  return { title, description };
-}
-
-async function fetchPostPreview(url) {
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ShillitBot/1.0)" },
-      redirect: "follow",
-      timeout: 8000,
-    });
-    const html = await res.text();
-    return extractMeta(html);
-  } catch (err) {
-    console.warn("[xCardWatcher] preview fetch failed:", err.message);
-    return { title: null, description: null };
-  }
-}
 
 function voteKeyboard(cardId) {
   return {
@@ -60,23 +27,20 @@ function escapeHtml(text) {
 // Kept as an alias so any external import of the old name still works.
 const escapeMd = escapeHtml;
 
-// Strips HTML tags for the plain-text fallback used when a formatted
-// send/edit fails for any reason — guarantees the card never just
-// disappears silently, it always ends up with *some* visible content.
 function stripHtml(text) {
   return text.replace(/<[^>]+>/g, "");
 }
 
+// X's scraped og:title/og:description were unreliable — X frequently
+// serves a generic logged-out page instead of real tweet content, which
+// showed up as garbage (random trending topics, boilerplate text) on
+// cards. Removed entirely. The card now relies only on what the poster
+// actually typed, which is always accurate.
 export function voteCardCaption(card, isHot) {
-  const postTitle = card.post_title ? escapeHtml(card.post_title) : "Original post";
-  const postDesc = card.post_description
-    ? `\n${escapeHtml(card.post_description.slice(0, 180))}`
-    : "";
   const heat = isHot ? " 🔥" : "";
 
   return (
     `<b>Comment Raid</b>${heat}\n\n` +
-    `📌 <b>Original post:</b>\n${postTitle}${postDesc}\n\n` +
     `💬 <b>Their comment:</b>\n${escapeHtml(card.comment_text.slice(0, 300))}\n\n` +
     `🗳️ Votes: ${card.vote_count}\n\n` +
     `<a href="${escapeHtml(card.url)}">Open on X</a>`
@@ -251,21 +215,18 @@ export function registerXCardWatcher({ bot, founderUserId }) {
     const now = Date.now();
     const expiresAt = now + CARD_EXPIRY_MIN * 60 * 1000;
 
-    const preview = await fetchPostPreview(url);
     const cardImageFileId = getSetting("card_image_file_id");
     const hasImageFlag = cardImageFileId ? 1 : 0;
 
     const insert = db.prepare(
-      `INSERT INTO raid_cards (chat_id, posted_by, posted_by_username, url, post_title, post_description, comment_text, stage, vote_count, raid_count, raid_target, created_at, expires_at, has_image)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'voting', 0, 0, ?, ?, ?, ?)`
+      `INSERT INTO raid_cards (chat_id, posted_by, posted_by_username, url, comment_text, stage, vote_count, raid_count, raid_target, created_at, expires_at, has_image)
+       VALUES (?, ?, ?, ?, ?, 'voting', 0, 0, ?, ?, ?, ?)`
     );
     const result = insert.run(
       chatId,
       userId,
       username || null,
       url,
-      preview.title,
-      preview.description,
       commentText,
       DEFAULT_TARGET,
       now,
