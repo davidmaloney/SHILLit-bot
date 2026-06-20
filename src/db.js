@@ -58,8 +58,8 @@ db.exec(`
     posted_by INTEGER,
     posted_by_username TEXT,
     url TEXT NOT NULL,
-    post_title TEXT,
-    post_description TEXT,
+    post_title TEXT, -- no longer populated; X-scrape preview was removed (unreliable)
+    post_description TEXT, -- no longer populated; X-scrape preview was removed (unreliable)
     comment_text TEXT NOT NULL,
     stage TEXT NOT NULL DEFAULT 'voting',
     vote_count INTEGER NOT NULL DEFAULT 0,
