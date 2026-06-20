@@ -36,16 +36,25 @@ async function announceIfLeveledUp(bot, groupChatId, founderUserId, username, us
   }
 }
 
+function minutesRemaining(card) {
+  const msLeft = card.expires_at - Date.now();
+  return Math.max(0, Math.round(msLeft / 60000));
+}
+
 function raidCaption(card) {
-  const postTitle = card.post_title ? escapeHtml(card.post_title) : "Original post";
-  const postDesc = card.post_description
-    ? `\n${escapeHtml(card.post_description.slice(0, 180))}`
-    : "";
+  const minsLeft = minutesRemaining(card);
+  const timeLine =
+    minsLeft > 0 ? `⏳ Expires in ${minsLeft} minute${minsLeft === 1 ? "" : "s"}\n\n` : "";
+  const believeLine =
+    card.vote_count > 0
+      ? `🙌 ${card.vote_count} ${card.vote_count === 1 ? "person" : "people"} already believe in this\n\n`
+      : "";
 
   return (
     `<b>⚔ RAID ACTIVE</b>\n\n` +
-    `📌 <b>Original post:</b>\n${postTitle}${postDesc}\n\n` +
     `💬 <b>Their comment:</b>\n${escapeHtml(card.comment_text.slice(0, 300))}\n\n` +
+    believeLine +
+    timeLine +
     `👉 <a href="${escapeHtml(card.url)}">Tap here to raid</a>`
   );
 }
