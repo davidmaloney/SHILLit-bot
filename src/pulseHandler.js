@@ -35,6 +35,18 @@ export function registerPulseHandler({ bot, groupChatId, founderUserId }) {
 
     await ctx.answerCbQuery("Recorded.");
 
+    // Visible confirmation posted in the group, since the small native
+    // popup proved unreliable for some users. Short single line, shows
+    // the actual points just gained and their running total.
+    try {
+      await bot.telegram.sendMessage(
+        groupChatId,
+        `@${username || userId} is in. +${result.gain} Conviction → ${result.user.conviction_score} total.`
+      );
+    } catch (err) {
+      console.error("[pulseHandler] confirmation message failed:", err.message);
+    }
+
     if (result.leveledUp && RECOGNITION_TITLES.has(result.newTitle)) {
       try {
         await bot.telegram.sendMessage(
