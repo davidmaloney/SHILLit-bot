@@ -142,8 +142,12 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
       ctx.reply("Usage: /promote <user_id>");
       return;
     }
-    manuallySetRole(targetId, "moderator");
-    ctx.reply(`User ${targetId} promoted to moderator.`);
+    const succeeded = manuallySetRole(targetId, "moderator");
+    if (succeeded) {
+      ctx.reply(`User ${targetId} promoted to moderator.`);
+    } else {
+      ctx.reply(`No user found with ID ${targetId}.`);
+    }
   });
 
   bot.command("demote", (ctx) => {
@@ -157,8 +161,12 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
       ctx.reply("Usage: /demote <user_id>");
       return;
     }
-    manuallySetRole(targetId, "member");
-    ctx.reply(`User ${targetId} demoted to member.`);
+    const succeeded = manuallySetRole(targetId, "member");
+    if (succeeded) {
+      ctx.reply(`User ${targetId} demoted to member.`);
+    } else {
+      ctx.reply(`No user found with ID ${targetId}.`);
+    }
   });
 
   bot.command("admin_candidates", (ctx) => {
