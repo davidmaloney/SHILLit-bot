@@ -59,10 +59,13 @@ function raidCaption(card) {
   );
 }
 
-function raidKeyboard() {
-  // No buttons on the raid box anymore — the link lives directly in the
-  // caption text as a tappable HTML link instead.
-  return { inline_keyboard: [] };
+function raidKeyboard(cardId) {
+  // The raid link itself lives directly in the caption text as a
+  // tappable HTML link. The only button is Remove, so moderation is
+  // still possible after a card becomes a live raid box.
+  return {
+    inline_keyboard: [[{ text: "🗑️ Remove", callback_data: `cardremove:${cardId}` }]],
+  };
 }
 
 export { raidCaption, raidKeyboard };
@@ -166,7 +169,7 @@ export function registerRaidHandler({ bot, groupChatId, founderUserId }) {
           bot,
           raidCard,
           raidCaption(raidCard),
-          raidKeyboard()
+          raidKeyboard(cardId)
         );
         if (founderUserId) {
           try {
