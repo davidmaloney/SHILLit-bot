@@ -1,4 +1,4 @@
-import db from "./db.js";
+import db, { getSetting, setSetting } from "./db.js";
 import { pickPulseTemplate, pickDurationMinutes } from "./pulses.js";
 import { getUsersForDecayCheck, decayRole, getRandomActiveUser } from "./reputation.js";
 
@@ -17,8 +17,13 @@ const EXPIRY_SWEEP_MS = 60 * 1000;
 const DECAY_CHECK_MS = 6 * 60 * 60 * 1000;
 const SPOTLIGHT_CHECK_MS = 30 * 60 * 1000;
 
-let lastPulseAt = 0;
-let lastSpotlightAt = 0;
+// Persisted to the settings table instead of kept only in memory — every
+// code deploy restarts the container, which used to silently reset these
+// timers back to "never fired", causing real Pulses to fire right after
+// each restart rather than on their natural day-by-day rhythm. Loading
+// from the database means restarts no longer disrupt the schedule.
+let lastPulseAt = parseInt(getSetting("last_pulse_at") || "0", 10);
+let lastSpotlightAt = parseInt(getSetting("last_spotlight_at") || "0", 10);
 
 function minutesSince(timestamp) {
   if (!timestamp) return Infinity;
@@ -38,6 +43,7 @@ export function startScheduler({ bot, groupChatId, founderUserId }) {
       if (mustFire || roll < FIRE_CHANCE) {
         await firePulse({ bot, groupChatId });
         lastPulseAt = Date.now();
+        setSetting("last_pulse_at", String(lastPulseAt));
       }
     } catch (err) {
       console.error("[scheduler] pulse check failed:", err.message);
@@ -117,6 +123,7 @@ export function startScheduler({ bot, groupChatId, founderUserId }) {
           );
         }
         lastSpotlightAt = Date.now();
+        setSetting("last_spotlight_at", String(lastSpotlightAt));
       }
     } catch (err) {
       console.error("[scheduler] spotlight check failed:", err.message);
