@@ -24,7 +24,7 @@ function getLeadingRaidBox(chatId) {
 async function repostRaidBox(bot, card) {
   const caption = raidCaption(card);
   const cardImageFileId = getSetting("card_image_file_id");
-  const keyboard = raidKeyboard(card.card_id, card.url);
+  const keyboard = raidKeyboard(card.card_id);
 
   try {
     // Disable buttons on the old message so there's never two live,
@@ -72,8 +72,9 @@ async function repostRaidBox(bot, card) {
   }
 
   if (sent) {
-    db.prepare("UPDATE raid_cards SET message_id = ? WHERE card_id = ?").run(
+    db.prepare("UPDATE raid_cards SET message_id = ?, has_image = ? WHERE card_id = ?").run(
       sent.message_id,
+      cardImageFileId ? 1 : 0,
       card.card_id
     );
   }
