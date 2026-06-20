@@ -129,15 +129,31 @@ export function getUsersForDecayCheck() {
   const cutoff = Date.now() - ROLE_DECAY_DAYS * 24 * 60 * 60 * 1000;
   return db
     .prepare(
-      "SELECT * FROM users WHERE current_role IN ('moderator', 'admin') AND last_seen < ?"
+      `SELECT * FROM users
+       WHERE last_seen < ?
+       AND (current_role IN ('moderator', 'admin')
+            OR title IN ('Diamond Hand', 'Signal Reader', 'Conviction Holder', 'Council of Shillers'))`
     )
     .all(cutoff);
 }
 
+// Decaying a user drops both their bot role AND their conviction score
+// down to just below the Diamond Hand threshold. Reducing the score
+// itself (not just the title label) is necessary — awardConviction
+// recalculates title from score on every interaction, so a title-only
+// reset would be instantly undone the moment they're active again.
+// They keep enough score to remain "Bag Holder" and can re-climb
+// normally from there.
+const DECAY_TARGET_TITLE = "Bag Holder";
+const DECAY_TARGET_SCORE = 20; // safely inside Bag Holder's range (15-34)
+
 export function decayRole(userId) {
-  db.prepare("UPDATE users SET current_role = 'member', role_since = NULL WHERE user_id = ?").run(
-    userId
-  );
+  const user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
+  if (!user) return;
+  const newScore = Math.min(user.conviction_score, DECAY_TARGET_SCORE);
+  db.prepare(
+    "UPDATE users SET current_role = 'member', role_since = NULL, title = ?, conviction_score = ? WHERE user_id = ?"
+  ).run(DECAY_TARGET_TITLE, newScore, userId);
 }
 
 export function setFounder(userId, username) {
@@ -146,11 +162,10 @@ export function setFounder(userId, username) {
 }
 
 export function manuallySetRole(userId, role) {
-  db.prepare("UPDATE users SET current_role = ?, role_since = ? WHERE user_id = ?").run(
-    role,
-    Date.now(),
-    userId
-  );
+  const result = db
+    .prepare("UPDATE users SET current_role = ?, role_since = ? WHERE user_id = ?")
+    .run(role, Date.now(), userId);
+  return result.changes > 0;
 }
 
 export function getTopUsers(limit = 10) {
