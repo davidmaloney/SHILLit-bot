@@ -8,19 +8,21 @@ import { raidCaption, raidKeyboard } from "./raidHandler.js";
 // messages so they don't get buried in a busy chat. A quiet chat simply
 // never hits the threshold, so this never spams an inactive group.
 const REPOST_EVERY_N = parseInt(process.env.REPOST_EVERY_N_MESSAGES || "15", 10);
+const RAID_REPOST_LIMIT = parseInt(process.env.RAID_REPOST_LIMIT || "3", 10);
 
 // Tracked per chat, since a bot could in principle run in more than one
 // group — keeps the counters independent.
 const messageCounters = new Map();
 
 function getLeadingRaidBox(chatId) {
-  // No more raid_count to rank by since the join button was removed —
-  // this just surfaces the most recently created active raid box.
+  // Excludes any raid box that has already been reposted RAID_REPOST_LIMIT
+  // times — once a raid has had its fair share of airtime, it stops
+  // competing for repost slots instead of looping forever.
   return db
     .prepare(
-      "SELECT * FROM raid_cards WHERE stage = 'raid' AND chat_id = ? ORDER BY created_at DESC LIMIT 1"
+      "SELECT * FROM raid_cards WHERE stage = 'raid' AND chat_id = ? AND raid_repost_count < ? ORDER BY created_at DESC LIMIT 1"
     )
-    .get(chatId);
+    .get(chatId, RAID_REPOST_LIMIT);
 }
 
 async function repostRaidBox(bot, card) {
@@ -74,11 +76,9 @@ async function repostRaidBox(bot, card) {
   }
 
   if (sent) {
-    db.prepare("UPDATE raid_cards SET message_id = ?, has_image = ? WHERE card_id = ?").run(
-      sent.message_id,
-      cardImageFileId ? 1 : 0,
-      card.card_id
-    );
+    db.prepare(
+      "UPDATE raid_cards SET message_id = ?, has_image = ?, raid_repost_count = raid_repost_count + 1 WHERE card_id = ?"
+    ).run(sent.message_id, cardImageFileId ? 1 : 0, card.card_id);
   }
 }
 
