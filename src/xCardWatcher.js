@@ -86,7 +86,7 @@ export function voteCardCaption(card, isHot) {
 async function refreshVoteCard(bot, card) {
   const isHot = isMostVoted(card.card_id);
   const caption = voteCardCaption(card, isHot);
-  const hasImage = !!getSetting("card_image_file_id");
+  const hasImage = !!card.has_image;
   const keyboard = voteKeyboard(card.card_id);
   try {
     if (hasImage) {
@@ -197,8 +197,9 @@ async function repostVotingCard(bot, card) {
   }
 
   if (sent) {
-    db.prepare("UPDATE raid_cards SET message_id = ? WHERE card_id = ?").run(
+    db.prepare("UPDATE raid_cards SET message_id = ?, has_image = ? WHERE card_id = ?").run(
       sent.message_id,
+      cardImageFileId ? 1 : 0,
       card.card_id
     );
   }
@@ -251,10 +252,12 @@ export function registerXCardWatcher({ bot, founderUserId }) {
     const expiresAt = now + CARD_EXPIRY_MIN * 60 * 1000;
 
     const preview = await fetchPostPreview(url);
+    const cardImageFileId = getSetting("card_image_file_id");
+    const hasImageFlag = cardImageFileId ? 1 : 0;
 
     const insert = db.prepare(
-      `INSERT INTO raid_cards (chat_id, posted_by, posted_by_username, url, post_title, post_description, comment_text, stage, vote_count, raid_count, raid_target, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'voting', 0, 0, ?, ?, ?)`
+      `INSERT INTO raid_cards (chat_id, posted_by, posted_by_username, url, post_title, post_description, comment_text, stage, vote_count, raid_count, raid_target, created_at, expires_at, has_image)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'voting', 0, 0, ?, ?, ?, ?)`
     );
     const result = insert.run(
       chatId,
@@ -266,13 +269,13 @@ export function registerXCardWatcher({ bot, founderUserId }) {
       commentText,
       DEFAULT_TARGET,
       now,
-      expiresAt
+      expiresAt,
+      hasImageFlag
     );
     const cardId = result.lastInsertRowid;
     const card = db.prepare("SELECT * FROM raid_cards WHERE card_id = ?").get(cardId);
 
     const caption = voteCardCaption(card, false);
-    const cardImageFileId = getSetting("card_image_file_id");
     const keyboard = voteKeyboard(cardId);
 
     let sent = null;
