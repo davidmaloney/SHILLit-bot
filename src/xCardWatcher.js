@@ -49,24 +49,37 @@ function voteKeyboard(cardId) {
   };
 }
 
-function escapeMd(text) {
+function escapeHtml(text) {
   if (!text) return "";
-  return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, "\\$1");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Kept as an alias so any external import of the old name still works.
+const escapeMd = escapeHtml;
+
+// Strips HTML tags for the plain-text fallback used when a formatted
+// send/edit fails for any reason — guarantees the card never just
+// disappears silently, it always ends up with *some* visible content.
+function stripHtml(text) {
+  return text.replace(/<[^>]+>/g, "");
 }
 
 export function voteCardCaption(card, isHot) {
-  const postTitle = card.post_title ? escapeMd(card.post_title) : "Original post";
+  const postTitle = card.post_title ? escapeHtml(card.post_title) : "Original post";
   const postDesc = card.post_description
-    ? `\n${escapeMd(card.post_description.slice(0, 180))}`
+    ? `\n${escapeHtml(card.post_description.slice(0, 180))}`
     : "";
   const heat = isHot ? " 🔥" : "";
 
   return (
-    `*Comment Raid*${heat}\n\n` +
-    `📌 *Original post:*\n${postTitle}${postDesc}\n\n` +
-    `💬 *Their comment:*\n${escapeMd(card.comment_text.slice(0, 300))}\n\n` +
+    `<b>Comment Raid</b>${heat}\n\n` +
+    `📌 <b>Original post:</b>\n${postTitle}${postDesc}\n\n` +
+    `💬 <b>Their comment:</b>\n${escapeHtml(card.comment_text.slice(0, 300))}\n\n` +
     `🗳️ Votes: ${card.vote_count}\n\n` +
-    `[Open on X](${card.url})`
+    `<a href="${escapeHtml(card.url)}">Open on X</a>`
   );
 }
 
@@ -74,21 +87,43 @@ async function refreshVoteCard(bot, card) {
   const isHot = isMostVoted(card.card_id);
   const caption = voteCardCaption(card, isHot);
   const hasImage = !!getSetting("card_image_file_id");
+  const keyboard = voteKeyboard(card.card_id);
   try {
     if (hasImage) {
       await bot.telegram.editMessageCaption(card.chat_id, card.message_id, undefined, caption, {
-        parse_mode: "Markdown",
-        reply_markup: voteKeyboard(card.card_id),
+        parse_mode: "HTML",
+        reply_markup: keyboard,
       });
     } else {
       await bot.telegram.editMessageText(card.chat_id, card.message_id, undefined, caption, {
-        parse_mode: "Markdown",
-        reply_markup: voteKeyboard(card.card_id),
+        parse_mode: "HTML",
+        reply_markup: keyboard,
         disable_web_page_preview: true,
       });
     }
   } catch (err) {
-    console.warn("[xCardWatcher] failed to refresh vote card:", err.message);
+    console.warn("[xCardWatcher] failed to refresh vote card, retrying as plain text:", err.message);
+    try {
+      if (hasImage) {
+        await bot.telegram.editMessageCaption(
+          card.chat_id,
+          card.message_id,
+          undefined,
+          stripHtml(caption),
+          { reply_markup: keyboard }
+        );
+      } else {
+        await bot.telegram.editMessageText(
+          card.chat_id,
+          card.message_id,
+          undefined,
+          stripHtml(caption),
+          { reply_markup: keyboard, disable_web_page_preview: true }
+        );
+      }
+    } catch (err2) {
+      console.error("[xCardWatcher] plain-text fallback also failed:", err2.message);
+    }
   }
 }
 
@@ -114,6 +149,8 @@ function getLeadingVotingCard(chatId) {
 async function repostVotingCard(bot, card) {
   const caption = voteCardCaption(card, isMostVoted(card.card_id));
   const cardImageFileId = getSetting("card_image_file_id");
+  const keyboard = voteKeyboard(card.card_id);
+
   try {
     // Disable buttons on the old message so there's never two live,
     // actionable copies of the same card at once.
@@ -123,27 +160,47 @@ async function repostVotingCard(bot, card) {
   } catch {
     // old message may already be gone — non-fatal
   }
+
+  let sent = null;
   try {
-    let sent;
     if (cardImageFileId) {
       sent = await bot.telegram.sendPhoto(card.chat_id, cardImageFileId, {
         caption: `🔄 ${caption}`,
-        parse_mode: "Markdown",
-        reply_markup: voteKeyboard(card.card_id),
+        parse_mode: "HTML",
+        reply_markup: keyboard,
       });
     } else {
       sent = await bot.telegram.sendMessage(card.chat_id, `🔄 ${caption}`, {
-        parse_mode: "Markdown",
-        reply_markup: voteKeyboard(card.card_id),
+        parse_mode: "HTML",
+        reply_markup: keyboard,
         disable_web_page_preview: true,
       });
     }
+  } catch (err) {
+    console.warn("[xCardWatcher] failed to repost voting card, retrying as plain text:", err.message);
+    try {
+      const plainCaption = `🔄 ${stripHtml(caption)}`;
+      if (cardImageFileId) {
+        sent = await bot.telegram.sendPhoto(card.chat_id, cardImageFileId, {
+          caption: plainCaption,
+          reply_markup: keyboard,
+        });
+      } else {
+        sent = await bot.telegram.sendMessage(card.chat_id, plainCaption, {
+          reply_markup: keyboard,
+          disable_web_page_preview: true,
+        });
+      }
+    } catch (err2) {
+      console.error("[xCardWatcher] plain-text repost fallback also failed:", err2.message);
+    }
+  }
+
+  if (sent) {
     db.prepare("UPDATE raid_cards SET message_id = ? WHERE card_id = ?").run(
       sent.message_id,
       card.card_id
     );
-  } catch (err) {
-    console.warn("[xCardWatcher] failed to repost voting card:", err.message);
   }
 }
 
@@ -216,32 +273,52 @@ export function registerXCardWatcher({ bot, founderUserId }) {
 
     const caption = voteCardCaption(card, false);
     const cardImageFileId = getSetting("card_image_file_id");
+    const keyboard = voteKeyboard(cardId);
 
+    let sent = null;
     try {
-      let sent;
       if (cardImageFileId) {
         sent = await ctx.replyWithPhoto(cardImageFileId, {
           caption,
-          parse_mode: "Markdown",
-          reply_markup: voteKeyboard(cardId),
+          parse_mode: "HTML",
+          reply_markup: keyboard,
         });
       } else {
         sent = await ctx.reply(caption, {
-          parse_mode: "Markdown",
-          reply_markup: voteKeyboard(cardId),
+          parse_mode: "HTML",
+          reply_markup: keyboard,
           disable_web_page_preview: true,
         });
       }
+    } catch (err) {
+      console.warn("[xCardWatcher] failed to post card, retrying as plain text:", err.message);
+      try {
+        const plainCaption = stripHtml(caption);
+        if (cardImageFileId) {
+          sent = await ctx.replyWithPhoto(cardImageFileId, {
+            caption: plainCaption,
+            reply_markup: keyboard,
+          });
+        } else {
+          sent = await ctx.reply(plainCaption, {
+            reply_markup: keyboard,
+            disable_web_page_preview: true,
+          });
+        }
+      } catch (err2) {
+        console.error("[xCardWatcher] plain-text fallback also failed to post card:", err2.message);
+      }
+    }
+
+    if (sent) {
       db.prepare("UPDATE raid_cards SET message_id = ? WHERE card_id = ?").run(
         sent.message_id,
         cardId
       );
-    } catch (err) {
-      console.error("[xCardWatcher] failed to post card:", err.message);
     }
 
     return next();
   });
 }
 
-export { refreshVoteCard, isMostVoted, voteKeyboard, escapeMd, getLeadingVotingCard, repostVotingCard };
+export { refreshVoteCard, isMostVoted, voteKeyboard, escapeMd, escapeHtml, stripHtml, getLeadingVotingCard, repostVotingCard };
