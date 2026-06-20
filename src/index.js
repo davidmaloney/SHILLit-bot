@@ -6,6 +6,7 @@ import { registerPulseHandler } from "./pulseHandler.js";
 import { registerRaidHandler } from "./raidHandler.js";
 import { registerXCardWatcher } from "./xCardWatcher.js";
 import { registerRepostHandler } from "./repostHandler.js";
+import { registerKeywordHandler } from "./keywordHandler.js";
 import { registerWelcome } from "./welcome.js";
 import { startScheduler } from "./scheduler.js";
 import { setFounder } from "./reputation.js";
@@ -36,6 +37,7 @@ registerCommands({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_
 registerWelcome({ bot });
 registerXCardWatcher({ bot, founderUserId: FOUNDER_USER_ID });
 registerRepostHandler({ bot });
+registerKeywordHandler({ bot });
 registerPulseHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 registerRaidHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 
