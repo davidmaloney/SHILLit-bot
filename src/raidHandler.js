@@ -36,32 +36,24 @@ async function announceIfLeveledUp(bot, groupChatId, founderUserId, username, us
   }
 }
 
-function progressBar(current, target) {
-  const filled = Math.min(10, Math.round((current / target) * 10));
-  const empty = 10 - filled;
-  return "🟩".repeat(filled) + "⬜️".repeat(empty);
-}
-
 function raidCaption(card) {
   const postTitle = card.post_title ? escapeHtml(card.post_title) : "Original post";
   const postDesc = card.post_description
     ? `\n${escapeHtml(card.post_description.slice(0, 180))}`
     : "";
-  const bar = progressBar(card.raid_count, card.raid_target);
 
   return (
     `<b>⚔ RAID ACTIVE</b>\n\n` +
     `📌 <b>Original post:</b>\n${postTitle}${postDesc}\n\n` +
     `💬 <b>Their comment:</b>\n${escapeHtml(card.comment_text.slice(0, 300))}\n\n` +
-    `${bar}  ${card.raid_count}/${card.raid_target} raiders\n\n` +
-    `<a href="${escapeHtml(card.url)}">Open on X</a>`
+    `👉 <a href="${escapeHtml(card.url)}">Tap here to raid</a>`
   );
 }
 
-function raidKeyboard(cardId) {
-  return {
-    inline_keyboard: [[{ text: "⚔ Join Raid", callback_data: `raidjoin:${cardId}` }]],
-  };
+function raidKeyboard() {
+  // No buttons on the raid box anymore — the link lives directly in the
+  // caption text as a tappable HTML link instead.
+  return { inline_keyboard: [] };
 }
 
 export { raidCaption, raidKeyboard };
@@ -165,7 +157,7 @@ export function registerRaidHandler({ bot, groupChatId, founderUserId }) {
           bot,
           raidCard,
           raidCaption(raidCard),
-          raidKeyboard(cardId)
+          raidKeyboard()
         );
         if (founderUserId) {
           try {
@@ -184,75 +176,6 @@ export function registerRaidHandler({ bot, groupChatId, founderUserId }) {
           voteCardCaption(updatedCard, isMostVoted(updatedCard)),
           voteKeyboard(cardId)
         );
-      }
-      return;
-    }
-
-    // --- Raid join ---
-    if (data.startsWith("raidjoin:")) {
-      const cardId = parseInt(data.split(":")[1], 10);
-      const userId = ctx.from.id;
-      const username = ctx.from.username;
-
-      const card = db.prepare("SELECT * FROM raid_cards WHERE card_id = ?").get(cardId);
-      if (!card || card.stage !== "raid") {
-        await ctx.answerCbQuery("This raid is no longer active.");
-        return;
-      }
-
-      let inserted = false;
-      try {
-        db.prepare(
-          "INSERT INTO raid_joins (card_id, user_id, username, timestamp) VALUES (?, ?, ?, ?)"
-        ).run(cardId, userId, username || null, Date.now());
-        inserted = true;
-      } catch {
-        inserted = false;
-      }
-
-      if (!inserted) {
-        await ctx.answerCbQuery("You already joined this raid.");
-        return;
-      }
-
-      const raidResult = awardConviction(userId, username, 4);
-      await announceIfLeveledUp(bot, groupChatId, founderUserId, username, userId, raidResult);
-
-      db.prepare("UPDATE raid_cards SET raid_count = raid_count + 1 WHERE card_id = ?").run(
-        cardId
-      );
-
-      const updatedCard = db.prepare("SELECT * FROM raid_cards WHERE card_id = ?").get(cardId);
-
-      await ctx.answerCbQuery("Joined the raid.");
-      try {
-        await ctx.reply(`⚔ @${username || userId} joined → ${updatedCard.url}`);
-      } catch {
-        // non-fatal
-      }
-
-      await renderCardMessage(
-        bot,
-        updatedCard,
-        raidCaption(updatedCard),
-        raidKeyboard(cardId)
-      );
-
-      const justFilled = card.raid_count < card.raid_target && updatedCard.raid_count >= updatedCard.raid_target;
-      if (justFilled) {
-        const firstJoin = db
-          .prepare("SELECT * FROM raid_joins WHERE card_id = ? ORDER BY timestamp ASC LIMIT 1")
-          .get(cardId);
-        if (firstJoin) {
-          try {
-            await bot.telegram.sendMessage(
-              updatedCard.chat_id,
-              `Raid filled. First responder: @${firstJoin.username || firstJoin.user_id}`
-            );
-          } catch {
-            // non-fatal
-          }
-        }
       }
       return;
     }
