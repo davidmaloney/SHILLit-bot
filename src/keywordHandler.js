@@ -4,11 +4,39 @@
 // All values configurable in .env so they can be updated any time
 // without a code change (e.g. once a real CA exists).
 
+const INFO_TEXT =
+  "📌 SHILLit Community Update\n" +
+  "Welcome to SHILLit! 🚀\n\n" +
+  "We're currently in the final stages of preparation before launch. Here's what you need to know:\n\n" +
+  "🔹 Project Status\n" +
+  "Development is progressing smoothly.\n" +
+  "Final refinements are being completed before launch.\n" +
+  "More features will be added after launch, including DEX integrations and tracking tools.\n\n" +
+  "shillit.fun is a platform built for crypto creators and meme coin communities. It is the first platform on Solana and the first in crypto to enable payments directly in cryptocurrency. It already has paying users and is actively running. The upcoming token is being created around this ecosystem.\n\n" +
+  "🔹 What to Expect\n" +
+  "Official contract address (CA) announcement.\n" +
+  "Launch details and countdown updates.\n" +
+  "Community events, spaces, and engagement activities.\n" +
+  "Marketing and visibility campaigns to grow the SHILLit ecosystem.\n\n" +
+  "🔹 How You Can Help\n" +
+  "Stay active in the community.\n" +
+  "Invite friends who are into memecoins and Web3.\n" +
+  "Join discussions and upcoming events.\n" +
+  "Help push SHILLit across socials and spread the word.\n\n" +
+  "🔹 Special Launch Offer\n" +
+  "While the promo is live, you can use SHILL100 at checkout on shillit.fun for free access. You can top it up anytime, extending usage and effectively keeping your site running for longer using the same code. The code becomes invalid after launch. So make sure to extend it soon.\n\n" +
+  "🔹 Important\n" +
+  "Only trust info shared by the official team and admins. Be careful of scams, fake links, and impersonators.\n\n" +
+  "The journey is just getting started.\n" +
+  "SHILLit isn't here to participate — SHILLit is here to take over. 🔥";
+
 const KEYWORD_MAP = {
   x: process.env.KEYWORD_X_REPLY || "https://x.com/shillitfun?s=11",
   web: process.env.KEYWORD_WEB_REPLY || "SHILLit.fun",
   site: process.env.KEYWORD_SITE_REPLY || "Not up yet",
   ca: process.env.KEYWORD_CA_REPLY || "Not added yet",
+  tg: process.env.KEYWORD_TG_REPLY || "https://t.me/shillitchat",
+  info: INFO_TEXT,
 };
 
 // Matches the keyword as a standalone word (case-insensitive) so it
