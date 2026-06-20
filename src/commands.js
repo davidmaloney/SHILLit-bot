@@ -53,6 +53,16 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
     );
   });
 
+  // Temporary debug command — shows exactly what the bot sees for
+  // diagnosing the founder-mismatch issue. Safe to remove later.
+  bot.command("whoami", (ctx) => {
+    ctx.reply(
+      `Your Telegram ID (as seen by bot): ${ctx.from.id}\n` +
+        `Configured FOUNDER_USER_ID: ${founderUserId}\n` +
+        `Match: ${String(ctx.from.id) === String(founderUserId)}`
+    );
+  });
+
   bot.command("conviction", (ctx) => {
     const user = getOrCreateUser(ctx.from.id, ctx.from.username);
     const score = user.conviction_score;
