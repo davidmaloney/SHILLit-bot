@@ -1,5 +1,10 @@
 // Pulse templates — kept short, atmospheric, shill-culture themed.
 // Each template has a rarity weight. Higher weight = more common.
+// All templates now use a single shared action ("im_in") and label
+// ("I'm in") — having two buttons gave identical points either way,
+// which made the choice meaningless. One clear action is more honest.
+
+const SINGLE_BUTTON = [{ label: "I'm in", action: "im_in" }];
 
 export const PULSE_TEMPLATES = [
   {
@@ -7,67 +12,49 @@ export const PULSE_TEMPLATES = [
     rarity: "common",
     weight: 10,
     text: "Conviction is forming somewhere in this chat. Most won't notice in time.",
-    buttons: [
-      { label: "Feel it", action: "feel" },
-      { label: "Ignore", action: "ignore" },
-    ],
+    buttons: SINGLE_BUTTON,
   },
   {
     type: "static",
     rarity: "common",
     weight: 10,
     text: "Static on the chart. The candle moved. Nobody knows why.",
-    buttons: [
-      { label: "Observe", action: "observe" },
-      { label: "Stabilize", action: "stabilize" },
-    ],
+    buttons: SINGLE_BUTTON,
   },
   {
     type: "bagholder_signal",
     rarity: "common",
     weight: 8,
     text: "Someone here has diamond hands nobody's confirmed yet.",
-    buttons: [
-      { label: "Witness", action: "witness" },
-      { label: "Decode", action: "decode" },
-    ],
+    buttons: SINGLE_BUTTON,
   },
   {
     type: "whisper",
     rarity: "uncommon",
     weight: 5,
     text: "A whisper just passed through the group. It said nothing. That's the point.",
-    buttons: [
-      { label: "Listen", action: "listen" },
-      { label: "Report Noise", action: "report_noise" },
-    ],
+    buttons: SINGLE_BUTTON,
   },
   {
     type: "rug_echo",
     rarity: "uncommon",
     weight: 4,
     text: "An old rug pull is echoing somewhere in the chain. It is not yours. Yet.",
-    buttons: [
-      { label: "Brace", action: "brace" },
-      { label: "Decode", action: "decode" },
-    ],
+    buttons: SINGLE_BUTTON,
   },
   {
     type: "fracture",
     rarity: "rare",
     weight: 2,
     text: "Cons̸ensus integrity is collapsing in a corner of this chat nobody is watching.",
-    buttons: [
-      { label: "Stabilize", action: "stabilize" },
-      { label: "Witness", action: "witness" },
-    ],
+    buttons: SINGLE_BUTTON,
   },
   {
     type: "ghost_pulse",
     rarity: "rare",
     weight: 1,
     text: "This Pulse should not exist. It is already expiring.",
-    buttons: [{ label: "Witness anyway", action: "witness" }],
+    buttons: SINGLE_BUTTON,
   },
 ];
 
