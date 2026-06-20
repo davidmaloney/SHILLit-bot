@@ -1,6 +1,6 @@
 import db, { getSetting } from "./db.js";
 import { awardConviction, userMeetsTitleRank } from "./reputation.js";
-import { voteCardCaption, voteKeyboard, escapeMd } from "./xCardWatcher.js";
+import { voteCardCaption, voteKeyboard, escapeHtml, stripHtml } from "./xCardWatcher.js";
 
 const VOTE_THRESHOLD = parseInt(process.env.RAID_VOTE_THRESHOLD || "5", 10);
 const DELETE_REQUIRED_TITLE = "Diamond Hand";
@@ -43,18 +43,18 @@ function progressBar(current, target) {
 }
 
 function raidCaption(card) {
-  const postTitle = card.post_title ? escapeMd(card.post_title) : "Original post";
+  const postTitle = card.post_title ? escapeHtml(card.post_title) : "Original post";
   const postDesc = card.post_description
-    ? `\n${escapeMd(card.post_description.slice(0, 180))}`
+    ? `\n${escapeHtml(card.post_description.slice(0, 180))}`
     : "";
   const bar = progressBar(card.raid_count, card.raid_target);
 
   return (
-    `*⚔ RAID ACTIVE*\n\n` +
-    `📌 *Original post:*\n${postTitle}${postDesc}\n\n` +
-    `💬 *Their comment:*\n${escapeMd(card.comment_text.slice(0, 300))}\n\n` +
+    `<b>⚔ RAID ACTIVE</b>\n\n` +
+    `📌 <b>Original post:</b>\n${postTitle}${postDesc}\n\n` +
+    `💬 <b>Their comment:</b>\n${escapeHtml(card.comment_text.slice(0, 300))}\n\n` +
     `${bar}  ${card.raid_count}/${card.raid_target} raiders\n\n` +
-    `[Open on X](${card.url})`
+    `<a href="${escapeHtml(card.url)}">Open on X</a>`
   );
 }
 
@@ -85,18 +85,39 @@ async function renderCardMessage(bot, card, caption, keyboard) {
   try {
     if (hasImage) {
       await bot.telegram.editMessageCaption(card.chat_id, card.message_id, undefined, caption, {
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         reply_markup: keyboard,
       });
     } else {
       await bot.telegram.editMessageText(card.chat_id, card.message_id, undefined, caption, {
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         reply_markup: keyboard,
         disable_web_page_preview: true,
       });
     }
   } catch (err) {
-    console.warn("[raidHandler] failed to render card:", err.message);
+    console.warn("[raidHandler] failed to render card, retrying as plain text:", err.message);
+    try {
+      if (hasImage) {
+        await bot.telegram.editMessageCaption(
+          card.chat_id,
+          card.message_id,
+          undefined,
+          stripHtml(caption),
+          { reply_markup: keyboard }
+        );
+      } else {
+        await bot.telegram.editMessageText(
+          card.chat_id,
+          card.message_id,
+          undefined,
+          stripHtml(caption),
+          { reply_markup: keyboard, disable_web_page_preview: true }
+        );
+      }
+    } catch (err2) {
+      console.error("[raidHandler] plain-text fallback also failed:", err2.message);
+    }
   }
 }
 
@@ -217,7 +238,8 @@ export function registerRaidHandler({ bot, groupChatId, founderUserId }) {
         raidKeyboard(cardId, updatedCard.url)
       );
 
-      if (updatedCard.raid_count === updatedCard.raid_target) {
+      const justFilled = card.raid_count < card.raid_target && updatedCard.raid_count >= updatedCard.raid_target;
+      if (justFilled) {
         const firstJoin = db
           .prepare("SELECT * FROM raid_joins WHERE card_id = ? ORDER BY timestamp ASC LIMIT 1")
           .get(cardId);
