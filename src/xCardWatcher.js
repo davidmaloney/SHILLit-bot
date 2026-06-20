@@ -196,14 +196,12 @@ export function registerXCardWatcher({ bot, founderUserId }) {
 
     const url = match[0];
 
-    // Everything after the URL in the same message is treated as the
-    // poster's own comment text. If nothing follows, ask them to resend
-    // with their comment included, since the card requires it.
     const commentText = text.replace(url, "").trim();
-    if (!commentText) {
+    const looksLikeOnlyACommand = /^\/\S+$/.test(commentText);
+    if (!commentText || looksLikeOnlyACommand) {
       try {
         await ctx.reply(
-          "Include your comment text in the same message as the link, e.g.:\nhttps://x.com/... Great project, just bought in."
+          "Include your own comment text in the same message as the link, e.g.:\nhttps://x.com/... Great project, just bought in."
         );
       } catch {
         // non-fatal
