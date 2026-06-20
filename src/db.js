@@ -66,7 +66,8 @@ db.exec(`
     raid_count INTEGER NOT NULL DEFAULT 0,
     raid_target INTEGER NOT NULL DEFAULT 10,
     created_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL
+    expires_at INTEGER NOT NULL,
+    has_image INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS card_votes (
@@ -117,6 +118,20 @@ if (titleCount === 0) {
     { title: "Conviction Holder", threshold: 100, role: "admin" },
     { title: "Council of Shillers", threshold: 160, role: "admin" },
   ]);
+}
+
+// Migration for databases created before has_image existed.
+// CREATE TABLE IF NOT EXISTS does not add new columns to an existing
+// table, so this runs every startup but is a no-op once the column
+// is present.
+try {
+  const columns = db.prepare("PRAGMA table_info(raid_cards)").all();
+  const hasImageColumn = columns.some((c) => c.name === "has_image");
+  if (!hasImageColumn) {
+    db.exec("ALTER TABLE raid_cards ADD COLUMN has_image INTEGER NOT NULL DEFAULT 0");
+  }
+} catch (err) {
+  console.error("[db] migration check failed:", err.message);
 }
 
 export function getSetting(key) {
