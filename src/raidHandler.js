@@ -1,4 +1,4 @@
-import db, { getSetting } from "./db.js";
+import db from "./db.js";
 import { awardConviction, userMeetsTitleRank } from "./reputation.js";
 import { voteCardCaption, voteKeyboard, escapeHtml, stripHtml } from "./xCardWatcher.js";
 
@@ -58,14 +58,9 @@ function raidCaption(card) {
   );
 }
 
-function raidKeyboard(cardId, url) {
+function raidKeyboard(cardId) {
   return {
-    inline_keyboard: [
-      [
-        { text: "🔗 Open Link", url },
-        { text: "⚔ Join Raid", callback_data: `raidjoin:${cardId}` },
-      ],
-    ],
+    inline_keyboard: [[{ text: "⚔ Join Raid", callback_data: `raidjoin:${cardId}` }]],
   };
 }
 
@@ -81,7 +76,7 @@ function isMostVoted(card) {
 }
 
 async function renderCardMessage(bot, card, caption, keyboard) {
-  const hasImage = !!getSetting("card_image_file_id");
+  const hasImage = !!card.has_image;
   try {
     if (hasImage) {
       await bot.telegram.editMessageCaption(card.chat_id, card.message_id, undefined, caption, {
@@ -170,7 +165,7 @@ export function registerRaidHandler({ bot, groupChatId, founderUserId }) {
           bot,
           raidCard,
           raidCaption(raidCard),
-          raidKeyboard(cardId, raidCard.url)
+          raidKeyboard(cardId)
         );
         if (founderUserId) {
           try {
@@ -230,12 +225,17 @@ export function registerRaidHandler({ bot, groupChatId, founderUserId }) {
       const updatedCard = db.prepare("SELECT * FROM raid_cards WHERE card_id = ?").get(cardId);
 
       await ctx.answerCbQuery("Joined the raid.");
+      try {
+        await ctx.reply(`⚔ @${username || userId} joined → ${updatedCard.url}`);
+      } catch {
+        // non-fatal
+      }
 
       await renderCardMessage(
         bot,
         updatedCard,
         raidCaption(updatedCard),
-        raidKeyboard(cardId, updatedCard.url)
+        raidKeyboard(cardId)
       );
 
       const justFilled = card.raid_count < card.raid_target && updatedCard.raid_count >= updatedCard.raid_target;
