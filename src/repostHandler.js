@@ -1,5 +1,5 @@
 import db, { getSetting } from "./db.js";
-import { getLeadingVotingCard, repostVotingCard } from "./xCardWatcher.js";
+import { getLeadingVotingCard, repostVotingCard, stripHtml } from "./xCardWatcher.js";
 import { raidCaption, raidKeyboard } from "./raidHandler.js";
 
 // Rather than a timer, we count real messages flowing through the chat.
@@ -24,6 +24,7 @@ function getLeadingRaidBox(chatId) {
 async function repostRaidBox(bot, card) {
   const caption = raidCaption(card);
   const cardImageFileId = getSetting("card_image_file_id");
+  const keyboard = raidKeyboard(card.card_id, card.url);
 
   try {
     // Disable buttons on the old message so there's never two live,
@@ -35,27 +36,46 @@ async function repostRaidBox(bot, card) {
     // old message may already be gone — non-fatal
   }
 
+  let sent = null;
   try {
-    let sent;
     if (cardImageFileId) {
       sent = await bot.telegram.sendPhoto(card.chat_id, cardImageFileId, {
         caption: `🔄 ${caption}`,
-        parse_mode: "Markdown",
-        reply_markup: raidKeyboard(card.card_id, card.url),
+        parse_mode: "HTML",
+        reply_markup: keyboard,
       });
     } else {
       sent = await bot.telegram.sendMessage(card.chat_id, `🔄 ${caption}`, {
-        parse_mode: "Markdown",
-        reply_markup: raidKeyboard(card.card_id, card.url),
+        parse_mode: "HTML",
+        reply_markup: keyboard,
         disable_web_page_preview: true,
       });
     }
+  } catch (err) {
+    console.warn("[repostHandler] failed to repost raid box, retrying as plain text:", err.message);
+    try {
+      const plainCaption = `🔄 ${stripHtml(caption)}`;
+      if (cardImageFileId) {
+        sent = await bot.telegram.sendPhoto(card.chat_id, cardImageFileId, {
+          caption: plainCaption,
+          reply_markup: keyboard,
+        });
+      } else {
+        sent = await bot.telegram.sendMessage(card.chat_id, plainCaption, {
+          reply_markup: keyboard,
+          disable_web_page_preview: true,
+        });
+      }
+    } catch (err2) {
+      console.error("[repostHandler] plain-text repost fallback also failed:", err2.message);
+    }
+  }
+
+  if (sent) {
     db.prepare("UPDATE raid_cards SET message_id = ? WHERE card_id = ?").run(
       sent.message_id,
       card.card_id
     );
-  } catch (err) {
-    console.warn("[repostHandler] failed to repost raid box:", err.message);
   }
 }
 
