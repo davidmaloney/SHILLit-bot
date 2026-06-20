@@ -28,7 +28,7 @@ function getLeadingRaidBox(chatId) {
 async function repostRaidBox(bot, card) {
   const caption = raidCaption(card);
   const cardImageFileId = getSetting("card_image_file_id");
-  const keyboard = raidKeyboard();
+  const keyboard = raidKeyboard(card.card_id);
 
   try {
     // Disable buttons on the old message so there's never two live,
