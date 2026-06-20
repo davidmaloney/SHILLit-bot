@@ -118,7 +118,7 @@ export function recordInteraction(userId, username, pulseId, interactionType) {
 
   const gain = 3 + Math.floor(Math.random() * 4); // 3-6 points
   const result = awardConviction(userId, username, gain);
-  return { alreadyInteracted: false, ...result };
+  return { alreadyInteracted: false, gain, ...result };
 }
 
 export function getProfile(userId) {
