@@ -64,7 +64,8 @@ db.exec(`
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
     has_image INTEGER NOT NULL DEFAULT 0,
-    repost_count INTEGER NOT NULL DEFAULT 0
+    repost_count INTEGER NOT NULL DEFAULT 0,
+    raid_started_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS card_votes (
@@ -117,10 +118,10 @@ if (titleCount === 0) {
   ]);
 }
 
-// Migration for databases created before has_image / repost_count
-// existed. CREATE TABLE IF NOT EXISTS does not add new columns to an
-// existing table, so this runs every startup but is a no-op once the
-// columns are present.
+// Migration for databases created before has_image / repost_count /
+// raid_started_at existed. CREATE TABLE IF NOT EXISTS does not add new
+// columns to an existing table, so this runs every startup but is a
+// no-op once the columns are present.
 try {
   const columns = db.prepare("PRAGMA table_info(raid_cards)").all();
   const hasImageColumn = columns.some((c) => c.name === "has_image");
@@ -137,6 +138,10 @@ try {
     if (hasOldRaidRepostCount) {
       db.exec("UPDATE raid_cards SET repost_count = raid_repost_count WHERE raid_repost_count > 0");
     }
+  }
+  const hasRaidStartedAtColumn = columns.some((c) => c.name === "raid_started_at");
+  if (!hasRaidStartedAtColumn) {
+    db.exec("ALTER TABLE raid_cards ADD COLUMN raid_started_at INTEGER");
   }
 } catch (err) {
   console.error("[db] migration check failed:", err.message);
