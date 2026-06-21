@@ -58,17 +58,13 @@ db.exec(`
     posted_by INTEGER,
     posted_by_username TEXT,
     url TEXT NOT NULL,
-    post_title TEXT, -- no longer populated; X-scrape preview was removed (unreliable)
-    post_description TEXT, -- no longer populated; X-scrape preview was removed (unreliable)
     comment_text TEXT NOT NULL,
     stage TEXT NOT NULL DEFAULT 'voting',
     vote_count INTEGER NOT NULL DEFAULT 0,
-    raid_count INTEGER NOT NULL DEFAULT 0,
-    raid_target INTEGER NOT NULL DEFAULT 10,
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
     has_image INTEGER NOT NULL DEFAULT 0,
-    raid_repost_count INTEGER NOT NULL DEFAULT 0
+    repost_count INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS card_votes (
@@ -121,7 +117,7 @@ if (titleCount === 0) {
   ]);
 }
 
-// Migration for databases created before has_image / raid_repost_count
+// Migration for databases created before has_image / repost_count
 // existed. CREATE TABLE IF NOT EXISTS does not add new columns to an
 // existing table, so this runs every startup but is a no-op once the
 // columns are present.
@@ -131,9 +127,16 @@ try {
   if (!hasImageColumn) {
     db.exec("ALTER TABLE raid_cards ADD COLUMN has_image INTEGER NOT NULL DEFAULT 0");
   }
-  const hasRepostCountColumn = columns.some((c) => c.name === "raid_repost_count");
+  const hasRepostCountColumn = columns.some((c) => c.name === "repost_count");
   if (!hasRepostCountColumn) {
-    db.exec("ALTER TABLE raid_cards ADD COLUMN raid_repost_count INTEGER NOT NULL DEFAULT 0");
+    db.exec("ALTER TABLE raid_cards ADD COLUMN repost_count INTEGER NOT NULL DEFAULT 0");
+    // Carry over any existing raid_repost_count values from the old
+    // two-counter design, so cards already mid-raid don't lose their
+    // repost progress during the upgrade.
+    const hasOldRaidRepostCount = columns.some((c) => c.name === "raid_repost_count");
+    if (hasOldRaidRepostCount) {
+      db.exec("UPDATE raid_cards SET repost_count = raid_repost_count WHERE raid_repost_count > 0");
+    }
   }
 } catch (err) {
   console.error("[db] migration check failed:", err.message);
