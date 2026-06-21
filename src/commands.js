@@ -1,4 +1,4 @@
-import db, { setSetting } from "./db.js";
+import db, { setSetting, getSetting } from "./db.js";
 import {
   getOrCreateUser,
   getProfile,
@@ -194,34 +194,18 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
     const totalPulses = db.prepare("SELECT COUNT(*) AS c FROM pulses").get().c;
     const totalInteractions = db.prepare("SELECT COUNT(*) AS c FROM believers").get().c;
     const totalCards = db.prepare("SELECT COUNT(*) AS c FROM raid_cards").get().c;
-    const totalRaidJoins = db.prepare("SELECT COUNT(*) AS c FROM raid_joins").get().c;
+    const lastPulseAtRaw = getSetting("last_pulse_at");
+    const lastPulseText = lastPulseAtRaw
+      ? new Date(parseInt(lastPulseAtRaw, 10)).toLocaleString()
+      : "never";
     const top = getTopUsers(5);
     const topLines = top.map(
       (u, i) => `${i + 1}. @${u.username || u.user_id} — ${u.title}`
     );
     ctx.reply(
-      `Users: ${totalUsers}\nPulses: ${totalPulses}\nPulse interactions: ${totalInteractions}\nRaid cards: ${totalCards}\nRaid joins: ${totalRaidJoins}\n\nTop standing:\n${topLines.join(
+      `Users: ${totalUsers}\nPulses: ${totalPulses}\nPulse interactions: ${totalInteractions}\nRaid cards: ${totalCards}\nLast Pulse fired: ${lastPulseText}\n\nTop standing:\n${topLines.join(
         "\n"
       )}`
-    );
-  });
-
-  bot.command("set_raid_target", (ctx) => {
-    if (!isAdminOrFounder(ctx.from.id, founderUserId)) {
-      ctx.reply("Not authorized.");
-      return;
-    }
-    const parts = ctx.message.text.split(" ");
-    const newTarget = parseInt(parts[1], 10);
-    if (isNaN(newTarget) || newTarget <= 0) {
-      ctx.reply("Usage: /set_raid_target <number>");
-      return;
-    }
-    const result = db
-      .prepare("UPDATE raid_cards SET raid_target = ? WHERE stage = 'raid'")
-      .run(newTarget);
-    ctx.reply(
-      `Updated raid target to ${newTarget} for ${result.changes} active raid(s). Set RAID_DEFAULT_TARGET in .env and restart to make this permanent for new raids.`
     );
   });
 
