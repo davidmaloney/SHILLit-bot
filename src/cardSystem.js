@@ -473,18 +473,32 @@ async function handleVote(bot, ctx, groupChatId, founderUserId) {
   const voteResult = awardConviction(userId, username, 2);
   await announceIfLeveledUp(bot, groupChatId, founderUserId, username, userId, voteResult);
 
-  db.prepare("UPDATE raid_cards SET vote_count = vote_count + 1 WHERE card_id = ?").run(cardId);
+  // Single atomic statement: increments vote_count AND decides the new
+  // stage in one indivisible database operation, with the threshold
+  // comparison done by SQLite itself against the freshly-incremented
+  // value. This closes the race condition where multiple near-simultaneous
+  // votes could each independently read "still voting" before any of
+  // them had a chance to flip the stage, letting the count overshoot the
+  // threshold (e.g. landing on 4 votes when the threshold was 1).
+  // WHERE stage = 'voting' additionally guarantees this only ever runs
+  // once per card transition — if another concurrent call already
+  // flipped it to 'raid', this UPDATE simply matches zero rows.
+  const now = Date.now();
+  db.prepare(
+    `UPDATE raid_cards
+     SET vote_count = vote_count + 1,
+         stage = CASE WHEN vote_count + 1 >= ? THEN 'raid' ELSE stage END,
+         raid_started_at = CASE WHEN vote_count + 1 >= ? THEN ? ELSE raid_started_at END
+     WHERE card_id = ? AND stage = 'voting'`
+  ).run(VOTE_THRESHOLD, VOTE_THRESHOLD, now, cardId);
+
   const updatedCard = getCard(cardId);
 
   await ctx.answerCbQuery("Vote counted.");
 
-  if (updatedCard.vote_count >= VOTE_THRESHOLD) {
-    db.prepare("UPDATE raid_cards SET stage = 'raid', raid_started_at = ? WHERE card_id = ?").run(
-      Date.now(),
-      cardId
-    );
-    const raidCard = getCard(cardId);
-    await editCardMessage(bot, raidCard);
+  if (updatedCard.stage === "raid" && updatedCard.raid_started_at === now) {
+    // This specific call is the one that triggered the transition.
+    await editCardMessage(bot, updatedCard);
     if (founderUserId) {
       try {
         await bot.telegram.sendMessage(
@@ -533,11 +547,46 @@ async function handleRemove(bot, ctx, founderUserId) {
 // Cards that never reached vote threshold in time quietly expire and
 // drop out of the repost rotation, same as before.
 
-export async function sweepExpiredCards(bot) {
+export async function sweepExpiredCards(bot, founderUserId) {
   const now = Date.now();
+
+  // Re-check every still-voting card against the CURRENT vote threshold.
+  // Without this, lowering RAID_VOTE_THRESHOLD mid-session would leave
+  // any card that already has enough votes permanently stuck in voting
+  // stage until someone happens to cast a fresh vote on it — the
+  // threshold check otherwise only runs inside handleVote.
+  const stuckCards = db
+    .prepare("SELECT * FROM raid_cards WHERE stage = 'voting' AND vote_count >= ?")
+    .all(VOTE_THRESHOLD);
+  for (const card of stuckCards) {
+    db.prepare(
+      "UPDATE raid_cards SET stage = 'raid', raid_started_at = ? WHERE card_id = ? AND stage = 'voting'"
+    ).run(now, card.card_id);
+    const raidCard = getCard(card.card_id);
+    if (raidCard && raidCard.stage === "raid") {
+      await editCardMessage(bot, raidCard);
+      if (founderUserId) {
+        try {
+          await bot.telegram.sendMessage(
+            founderUserId,
+            `⚠ RAID TRIGGERED\nA comment-raid card by @${raidCard.posted_by_username || raidCard.posted_by} just hit threshold.\n${raidCard.url}`
+          );
+        } catch {
+          // non-fatal
+        }
+      }
+    }
+  }
+
+  // Expiry is calculated live from created_at + the CURRENT
+  // CARD_EXPIRY_MIN, rather than relying on the fixed expires_at value
+  // stored when the card was created. This means changing
+  // CARD_EXPIRY_MINUTES in .env correctly applies to every existing
+  // card immediately, not just new ones created afterward.
+  const expiryCutoff = now - CARD_EXPIRY_MIN * 60 * 1000;
   const expiring = db
-    .prepare("SELECT * FROM raid_cards WHERE stage = 'voting' AND expires_at <= ?")
-    .all(now);
+    .prepare("SELECT * FROM raid_cards WHERE stage = 'voting' AND created_at <= ?")
+    .all(expiryCutoff);
 
   for (const card of expiring) {
     db.prepare("UPDATE raid_cards SET stage = 'expired' WHERE card_id = ?").run(card.card_id);
