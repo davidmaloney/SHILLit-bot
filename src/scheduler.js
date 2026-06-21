@@ -85,7 +85,7 @@ export function startScheduler({ bot, groupChatId, founderUserId }) {
   // cycle and vote/raid handling.
   setInterval(async () => {
     try {
-      await sweepExpiredCards(bot);
+      await sweepExpiredCards(bot, founderUserId);
     } catch (err) {
       console.error("[scheduler] card expiry sweep failed:", err.message);
     }
