@@ -3,9 +3,7 @@ import { Telegraf } from "telegraf";
 import "./db.js";
 import { registerCommands } from "./commands.js";
 import { registerPulseHandler } from "./pulseHandler.js";
-import { registerRaidHandler } from "./raidHandler.js";
-import { registerXCardWatcher } from "./xCardWatcher.js";
-import { registerRepostHandler } from "./repostHandler.js";
+import { registerCardSystem } from "./cardSystem.js";
 import { registerKeywordHandler } from "./keywordHandler.js";
 import { registerWelcome } from "./welcome.js";
 import { startScheduler } from "./scheduler.js";
@@ -31,15 +29,13 @@ if (FOUNDER_USER_ID) {
 }
 
 // Order matters: callback_query handlers chain via next() so pulse
-// callbacks and raid/vote/remove callbacks each get a chance to handle
+// callbacks and card (vote/remove) callbacks each get a chance to handle
 // their own prefix without colliding.
 registerCommands({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 registerWelcome({ bot });
-registerXCardWatcher({ bot, founderUserId: FOUNDER_USER_ID });
-registerRepostHandler({ bot });
 registerKeywordHandler({ bot });
 registerPulseHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
-registerRaidHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
+registerCardSystem({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 
 bot.catch((err, ctx) => {
   console.error(`[bot error] for update ${ctx.updateType}:`, err.message);
