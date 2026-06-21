@@ -1,6 +1,7 @@
 import db, { getSetting, setSetting } from "./db.js";
 import { pickPulseTemplate, pickDurationMinutes } from "./pulses.js";
 import { getUsersForDecayCheck, decayRole, getRandomActiveUser } from "./reputation.js";
+import { sweepExpiredCards } from "./cardSystem.js";
 
 const MIN_INTERVAL_MIN = parseInt(process.env.PULSE_MIN_INTERVAL_MINUTES || "240", 10);
 const MAX_INTERVAL_MIN = parseInt(process.env.PULSE_MAX_INTERVAL_MINUTES || "1440", 10);
@@ -78,24 +79,13 @@ export function startScheduler({ bot, groupChatId, founderUserId }) {
     }
   }, EXPIRY_SWEEP_MS);
 
-  // Raid card expiry sweep — cards that never reached vote threshold expire quietly
+  // Card expiry sweep — voting cards that never reached vote threshold
+  // expire quietly. Logic now lives in cardSystem.js so there's one
+  // single source of truth for card lifecycle, shared with the repost
+  // cycle and vote/raid handling.
   setInterval(async () => {
     try {
-      const now = Date.now();
-      const expiring = db
-        .prepare("SELECT * FROM raid_cards WHERE stage = 'voting' AND expires_at <= ?")
-        .all(now);
-
-      for (const card of expiring) {
-        db.prepare("UPDATE raid_cards SET stage = 'expired' WHERE card_id = ?").run(card.card_id);
-        try {
-          await bot.telegram.editMessageReplyMarkup(card.chat_id, card.message_id, undefined, {
-            inline_keyboard: [],
-          });
-        } catch {
-          // message may already be gone — non-fatal
-        }
-      }
+      await sweepExpiredCards(bot);
     } catch (err) {
       console.error("[scheduler] card expiry sweep failed:", err.message);
     }
