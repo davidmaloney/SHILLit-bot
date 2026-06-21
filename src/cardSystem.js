@@ -7,6 +7,11 @@ const REQUIRED_TITLE = process.env.RAID_REQUIRED_TITLE || "Diamond Hand";
 const DELETE_REQUIRED_TITLE = "Diamond Hand";
 const VOTE_THRESHOLD = parseInt(process.env.RAID_VOTE_THRESHOLD || "5", 10);
 const CARD_EXPIRY_MIN = parseInt(process.env.CARD_EXPIRY_MINUTES || "180", 10);
+// Separate from CARD_EXPIRY_MIN — that one governs how long a card has to
+// collect votes, this one governs how long a raid stays active once it
+// actually starts. Kept independent so changing one never silently
+// affects the other.
+const RAID_DURATION_MIN = parseInt(process.env.RAID_DURATION_MINUTES || "15", 10);
 const REPOST_EVERY_N = parseInt(process.env.REPOST_EVERY_N_MESSAGES || "15", 10);
 // One shared cap for the whole life of a card, voting or raid — replaces
 // the old two-counter design where only raid boxes had a limit.
@@ -43,22 +48,40 @@ function stripHtml(text) {
 // One function per concern, shared by every card regardless of stage,
 // instead of separate near-duplicate builders for voting vs raid.
 
-function minutesRemaining(card) {
-  const msLeft = card.expires_at - Date.now();
+function raidMinutesRemaining(card) {
+  if (!card.raid_started_at) return RAID_DURATION_MIN;
+  const raidExpiresAt = card.raid_started_at + RAID_DURATION_MIN * 60 * 1000;
+  const msLeft = raidExpiresAt - Date.now();
   return Math.max(0, Math.round(msLeft / 60000));
+}
+
+function isRaidClosed(card) {
+  return card.stage === "raid" && raidMinutesRemaining(card) <= 0;
 }
 
 function buildCaption(card, isHot) {
   const comment = escapeHtml(card.comment_text.slice(0, 400));
 
   if (card.stage === "raid") {
-    const minsLeft = minutesRemaining(card);
-    const timeLine =
-      minsLeft > 0 ? `⏳ Expires in ${minsLeft} minute${minsLeft === 1 ? "" : "s"}\n\n` : "";
     const believeLine =
       card.vote_count > 0
         ? `🙌 ${card.vote_count} ${card.vote_count === 1 ? "person" : "people"} already believe in this\n\n`
         : "";
+
+    if (isRaidClosed(card)) {
+      // Honest, visible ending instead of the countdown silently
+      // disappearing with no acknowledgment that anything changed.
+      return (
+        `<b>🔒 Raid Closed</b>\n\n` +
+        `💬 <b>Their comment:</b>\n${comment}\n\n` +
+        believeLine +
+        `This raid has ended.\n\n` +
+        `<a href="${escapeHtml(card.url)}">View on X</a>`
+      );
+    }
+
+    const minsLeft = raidMinutesRemaining(card);
+    const timeLine = `⏳ Closes in ${minsLeft} minute${minsLeft === 1 ? "" : "s"}\n\n`;
     return (
       `<b>⚔ RAID ACTIVE</b>\n\n` +
       `💬 <b>Their comment:</b>\n${comment}\n\n` +
@@ -68,18 +91,22 @@ function buildCaption(card, isHot) {
     );
   }
 
-  // voting stage
+  // voting stage — target shown alongside the count so people know how
+  // many votes are actually needed, not just how many exist so far.
   const heat = isHot ? " 🔥" : "";
   return (
     `<b>Comment Raid</b>${heat}\n\n` +
     `💬 <b>Their comment:</b>\n${comment}\n\n` +
-    `🗳️ Votes: ${card.vote_count}\n\n` +
+    `🗳️ Votes: ${card.vote_count}/${VOTE_THRESHOLD}\n\n` +
     `<a href="${escapeHtml(card.url)}">Open on X</a>`
   );
 }
 
 function buildKeyboard(card) {
   if (card.stage === "raid") {
+    if (isRaidClosed(card)) {
+      return { inline_keyboard: [] };
+    }
     // The raid link lives directly in the caption text as a tappable
     // HTML link. The only button is Remove, so moderation stays possible
     // after a card becomes a live raid.
@@ -114,15 +141,19 @@ function isMostVotedActiveCard(card) {
 
 // The single "what's the hottest card right now" query, used by the
 // repost cycle. A live raid always outranks any voting card; among
-// voting cards, most votes wins. Cards that have hit REPOST_LIMIT are
-// excluded so they naturally stop competing once they've had their fair
-// share of airtime.
+// voting cards, most votes wins. Cards that have hit REPOST_LIMIT, or
+// raids that have already visibly closed, are excluded so they stop
+// competing for airtime once they've had their fair share or ended.
 function getLeadingCard(chatId) {
+  const raidCutoff = Date.now() - RAID_DURATION_MIN * 60 * 1000;
   const leadingRaid = db
     .prepare(
-      "SELECT * FROM raid_cards WHERE stage = 'raid' AND chat_id = ? AND repost_count < ? ORDER BY created_at DESC LIMIT 1"
+      `SELECT * FROM raid_cards
+       WHERE stage = 'raid' AND chat_id = ? AND repost_count < ?
+       AND (raid_started_at IS NULL OR raid_started_at > ?)
+       ORDER BY created_at DESC LIMIT 1`
     )
-    .get(chatId, REPOST_LIMIT);
+    .get(chatId, REPOST_LIMIT, raidCutoff);
   if (leadingRaid) return leadingRaid;
 
   return db
@@ -448,7 +479,10 @@ async function handleVote(bot, ctx, groupChatId, founderUserId) {
   await ctx.answerCbQuery("Vote counted.");
 
   if (updatedCard.vote_count >= VOTE_THRESHOLD) {
-    db.prepare("UPDATE raid_cards SET stage = 'raid' WHERE card_id = ?").run(cardId);
+    db.prepare("UPDATE raid_cards SET stage = 'raid', raid_started_at = ? WHERE card_id = ?").run(
+      Date.now(),
+      cardId
+    );
     const raidCard = getCard(cardId);
     await editCardMessage(bot, raidCard);
     if (founderUserId) {
