@@ -44,11 +44,20 @@ bot.catch((err, ctx) => {
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
 
+// Start the scheduler BEFORE launching. bot.launch() returns a promise
+// that does not resolve until the bot STOPS, so anything placed in its
+// .then() would never run while the bot is alive — which previously left
+// every automatic timer (pulses, card expiry, raid auto-closing, role
+// decay, spotlight) switched off, even though manual actions like
+// /force_pulse still worked. The scheduler only uses bot.telegram, which
+// is ready as soon as the Telegraf instance exists, so starting here is
+// safe and guarantees the timers actually run.
+startScheduler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
+
 bot
   .launch()
   .then(() => {
     console.log("Shillit Bot is live (polling mode).");
-    startScheduler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
   })
   .catch((err) => {
     console.error("Failed to launch bot:", err.message);
