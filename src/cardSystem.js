@@ -463,6 +463,17 @@ async function handleNewCardSubmission(ctx, url, fullText, founderUserId) {
       sent.message_id,
       card.card_id
     );
+
+    // Delete the user's original link message once the card exists, so
+    // the raw X link isn't sitting above the card tempting people to
+    // click straight through instead of voting. Best-effort: needs
+    // delete permission (bot is admin), and a failure here is non-fatal —
+    // the card is already posted regardless.
+    try {
+      await ctx.deleteMessage(ctx.message.message_id);
+    } catch (err) {
+      console.warn("[cardSystem] could not delete original link message:", err.message);
+    }
   }
 }
 
