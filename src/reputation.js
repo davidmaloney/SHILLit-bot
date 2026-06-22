@@ -1,4 +1,5 @@
 import db from "./db.js";
+import { ALPHA_PULSE_TYPE, ALPHA_PULSE_BONUS } from "./pulses.js";
 
 const ROLE_DECAY_DAYS = parseInt(process.env.ROLE_DECAY_DAYS || "30", 10);
 const ROLE_RANK = { member: 0, moderator: 1, admin: 2, founder: 3 };
@@ -15,8 +16,7 @@ export function getOrCreateUser(userId, username) {
     return db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
   }
   db.prepare(
-    `INSERT INTO users (user_id, username, title, conviction_score, first_seen, last_seen, believer_count, current_role)
-     VALUES (?, ?, 'Lurker', 0, ?, ?, 0, 'member')`
+    "INSERT INTO users (user_id, username, title, conviction_score, first_seen, last_seen) VALUES (?, ?, 'Lurker', 0, ?, ?)"
   ).run(userId, username || null, now, now);
   return db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
 }
@@ -27,31 +27,23 @@ export function getAllTitles() {
 
 function titleForScore(score) {
   const titles = getAllTitles();
-  let result = titles[0];
+  let current = titles[0];
   for (const t of titles) {
-    if (score >= t.threshold) result = t;
+    if (score >= t.threshold) current = t;
   }
-  return result;
-}
-
-// Title-rank index (0 = Lurker, higher = further up the hierarchy).
-// Used to gate features by title tier rather than just bot role, since
-// Diamond Hand and Signal Reader share the "moderator" role but are
-// different tiers.
-function titleRankIndex(titleName) {
-  const titles = getAllTitles();
-  const idx = titles.findIndex((t) => t.title_name === titleName);
-  return idx === -1 ? 0 : idx;
+  return current;
 }
 
 export function userMeetsTitleRank(userId, requiredTitleName) {
   const user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
   if (!user) return false;
-  return titleRankIndex(user.title) >= titleRankIndex(requiredTitleName);
+  const titles = getAllTitles();
+  const userThreshold = titles.find((t) => t.title_name === user.title)?.threshold ?? 0;
+  const requiredThreshold =
+    titles.find((t) => t.title_name === requiredTitleName)?.threshold ?? Infinity;
+  return userThreshold >= requiredThreshold;
 }
 
-// Generic conviction award used by both Pulses and Raid/vote interactions.
-// Returns { user, leveledUp, newTitle, roleChanged, newRole }
 export function awardConviction(userId, username, amount) {
   const user = getOrCreateUser(userId, username);
   const now = Date.now();
@@ -116,9 +108,17 @@ export function recordInteraction(userId, username, pulseId, interactionType) {
     userId
   );
 
-  const gain = 3 + Math.floor(Math.random() * 4); // 3-6 points
+  const baseGain = 3 + Math.floor(Math.random() * 4); // 3-6 points
+
+  // Alpha Pulses award bonus Conviction on top of the normal gain. The
+  // pulse's type is read straight from the pulses table so this stays
+  // self-contained — no extra data needs threading through the handler.
+  const pulseRow = db.prepare("SELECT pulse_type FROM pulses WHERE pulse_id = ?").get(pulseId);
+  const isAlpha = pulseRow && pulseRow.pulse_type === ALPHA_PULSE_TYPE;
+  const gain = isAlpha ? baseGain + ALPHA_PULSE_BONUS : baseGain;
+
   const result = awardConviction(userId, username, gain);
-  return { alreadyInteracted: false, gain, ...result };
+  return { alreadyInteracted: false, gain, isAlpha, ...result };
 }
 
 export function getProfile(userId) {
@@ -129,43 +129,35 @@ export function getUsersForDecayCheck() {
   const cutoff = Date.now() - ROLE_DECAY_DAYS * 24 * 60 * 60 * 1000;
   return db
     .prepare(
-      `SELECT * FROM users
-       WHERE last_seen < ?
-       AND (current_role IN ('moderator', 'admin')
-            OR title IN ('Diamond Hand', 'Signal Reader', 'Conviction Holder', 'Council of Shillers'))`
+      "SELECT * FROM users WHERE current_role != 'member' AND current_role != 'founder' AND last_seen < ? AND role_since IS NOT NULL AND role_since < ?"
     )
-    .all(cutoff);
+    .all(cutoff, cutoff);
 }
-
-// Decaying a user drops both their bot role AND their conviction score
-// down to just below the Diamond Hand threshold. Reducing the score
-// itself (not just the title label) is necessary — awardConviction
-// recalculates title from score on every interaction, so a title-only
-// reset would be instantly undone the moment they're active again.
-// They keep enough score to remain "Bag Holder" and can re-climb
-// normally from there.
-const DECAY_TARGET_TITLE = "Bag Holder";
-const DECAY_TARGET_SCORE = 20; // safely inside Bag Holder's range (15-34)
 
 export function decayRole(userId) {
   const user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
   if (!user) return;
-  const newScore = Math.min(user.conviction_score, DECAY_TARGET_SCORE);
   db.prepare(
-    "UPDATE users SET current_role = 'member', role_since = NULL, title = ?, conviction_score = ? WHERE user_id = ?"
-  ).run(DECAY_TARGET_TITLE, newScore, userId);
+    "UPDATE users SET current_role = 'member', title = 'Bag Holder', conviction_score = 14, role_since = NULL WHERE user_id = ?"
+  ).run(userId);
 }
 
 export function setFounder(userId, username) {
-  getOrCreateUser(userId, username);
-  db.prepare("UPDATE users SET current_role = 'founder' WHERE user_id = ?").run(userId);
+  const user = getOrCreateUser(userId, username);
+  if (user.current_role !== "founder") {
+    db.prepare("UPDATE users SET current_role = 'founder' WHERE user_id = ?").run(userId);
+  }
 }
 
 export function manuallySetRole(userId, role) {
-  const result = db
-    .prepare("UPDATE users SET current_role = ?, role_since = ? WHERE user_id = ?")
-    .run(role, Date.now(), userId);
-  return result.changes > 0;
+  const user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
+  if (!user) return false;
+  db.prepare("UPDATE users SET current_role = ?, role_since = ? WHERE user_id = ?").run(
+    role,
+    Date.now(),
+    userId
+  );
+  return true;
 }
 
 export function getTopUsers(limit = 10) {
@@ -175,26 +167,24 @@ export function getTopUsers(limit = 10) {
 }
 
 export function getRandomActiveUser() {
-  // "Active" = seen in the last 14 days, has at least Shill Initiate title
-  // so brand new lurkers aren't spotlighted with nothing to show.
-  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
-  return db
-    .prepare(
-      `SELECT * FROM users WHERE last_seen >= ? AND title != 'Lurker' ORDER BY RANDOM() LIMIT 1`
-    )
-    .get(cutoff);
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const users = db
+    .prepare("SELECT * FROM users WHERE last_seen > ? AND conviction_score > 0")
+    .all(cutoff);
+  if (users.length === 0) return null;
+  return users[Math.floor(Math.random() * users.length)];
 }
 
 export function getAdminCandidates() {
-  const users = db.prepare("SELECT * FROM users").all();
+  const titles = getAllTitles();
   const candidates = [];
-  for (const u of users) {
-    const eligible = titleForScore(u.conviction_score);
-    if (
-      eligible.role_unlock &&
-      (ROLE_RANK[eligible.role_unlock] || 0) > (ROLE_RANK[u.current_role] || 0)
-    ) {
-      candidates.push({ user: u, eligibleRole: eligible.role_unlock, title: eligible.title_name });
+  const users = db
+    .prepare("SELECT * FROM users WHERE current_role = 'member' AND conviction_score > 0")
+    .all();
+  for (const user of users) {
+    const titleRow = titles.find((t) => t.title_name === user.title);
+    if (titleRow && titleRow.role_unlock) {
+      candidates.push({ user, title: user.title, eligibleRole: titleRow.role_unlock });
     }
   }
   return candidates;
