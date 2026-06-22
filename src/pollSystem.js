@@ -57,20 +57,35 @@ function buildPollCaption(poll) {
   const source = escapeHtml(poll.source_text.slice(0, SOURCE_MAX));
   const note = poll.creator_note ? escapeHtml(poll.creator_note.slice(0, NOTE_MAX)) : "";
   const closed = poll.status === "closed";
+  // source_author_username is stored already including a leading "@" when
+  // the person has a username, or as a plain display name when they don't,
+  // so it is rendered as-is here (never prefixed with another @).
+  const author = poll.source_author_username
+    ? escapeHtml(poll.source_author_username)
+    : "Someone";
+  const creator = escapeHtml(poll.creator_username ? `@${poll.creator_username}` : "someone");
 
-  let out = `<b>📊 SHILLit Poll</b>${closed ? " — <b>Closed</b>" : ""}\n\n`;
-  if (poll.source_author_username) {
-    out += `@${escapeHtml(poll.source_author_username)} said:\n`;
-  }
+  let out = `<b>📊 SHILLit Poll</b>${closed ? " — <b>CLOSED</b>" : ""}\n`;
+  out += `┏━━━━━━━━━━━━━┓\n`;
+  out += `⚡ <b>Costs ${POLL_COST} Conviction to create</b>\n`;
+  out += `┗━━━━━━━━━━━━━┛\n\n`;
+
+  // The original message being polled — author always shown above it.
+  out += `🗨️ <b>${author}</b> said:\n`;
   out += `<i>“${source}”</i>\n\n`;
+
+  // The poll creator's own framing question, if they added one.
   if (note) {
-    out += `💬 @${escapeHtml(poll.creator_username || "someone")}: ${note}\n\n`;
+    out += `💬 <b>${creator} asks:</b>\n${note}\n\n`;
   }
+
   out += `${buildBar(poll.yes_count, poll.no_count)}\n\n`;
+
   if (!closed) {
-    out += `🗣️ Let's debate this in chat.\n\n`;
+    out += `🗣️ <i>Let's debate this in chat — vote anytime.</i>`;
+  } else {
+    out += `🔒 <i>This poll has closed.</i>`;
   }
-  out += `⚡ Poll created for ${POLL_COST} Conviction`;
   return out;
 }
 
@@ -147,7 +162,10 @@ export function registerPollSystem({ bot, founderUserId }) {
     }
 
     const now = Date.now();
-    const sourceAuthor = replied.from?.username || null;
+    const sourceAuthor =
+      replied.from?.username
+        ? `@${replied.from.username}`
+        : replied.from?.first_name || "Someone";
 
     const result = db
       .prepare(
