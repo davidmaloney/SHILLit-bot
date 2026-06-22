@@ -96,8 +96,9 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
     );
   });
 
-  // --- Hidden: image change, available to Founder and Council of Shillers only ---
+  // --- Hidden: card media change, available to Founder and Council of Shillers only ---
   // Deliberately not listed in /help — discovered, not announced.
+  // Accepts either a photo or a video/animation as the card media.
   bot.command("set_card_image", async (ctx) => {
     const userId = ctx.from.id;
     const isFounderUser = isFounder(ctx, founderUserId);
@@ -109,15 +110,28 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
       return;
     }
 
-    const replyPhoto = ctx.message.reply_to_message?.photo;
-    if (!replyPhoto) {
-      await ctx.reply("Reply to a photo with /set_card_image to set it as the card image.");
+    const replied = ctx.message.reply_to_message;
+    const replyPhoto = replied?.photo;
+    const replyVideo = replied?.video || replied?.animation;
+
+    if (replyPhoto) {
+      const fileId = replyPhoto[replyPhoto.length - 1].file_id;
+      setSetting("card_image_file_id", fileId);
+      setSetting("card_image_type", "photo");
+      await ctx.reply("Card image updated. New cards will use this image.");
       return;
     }
 
-    const fileId = replyPhoto[replyPhoto.length - 1].file_id;
-    setSetting("card_image_file_id", fileId);
-    await ctx.reply("Card image updated. New cards will use this image.");
+    if (replyVideo) {
+      setSetting("card_image_file_id", replyVideo.file_id);
+      setSetting("card_image_type", "video");
+      await ctx.reply("Card video updated. New cards will use this video.");
+      return;
+    }
+
+    await ctx.reply(
+      "Reply to a photo or video with /set_card_image to set it as the card media."
+    );
   });
 
   // --- Admin commands ---
