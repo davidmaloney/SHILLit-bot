@@ -85,6 +85,30 @@ db.exec(`
     UNIQUE(card_id, user_id)
   );
 
+  CREATE TABLE IF NOT EXISTS polls (
+    poll_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    message_id INTEGER,
+    creator_id INTEGER NOT NULL,
+    creator_username TEXT,
+    source_author_username TEXT,
+    source_text TEXT NOT NULL,
+    creator_note TEXT,
+    yes_count INTEGER NOT NULL DEFAULT 0,
+    no_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS poll_votes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    choice TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    UNIQUE(poll_id, user_id)
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -96,6 +120,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_votes_card ON card_votes(card_id);
   CREATE INDEX IF NOT EXISTS idx_raidjoins_card ON raid_joins(card_id);
   CREATE INDEX IF NOT EXISTS idx_raidcards_stage ON raid_cards(stage);
+  CREATE INDEX IF NOT EXISTS idx_pollvotes_poll ON poll_votes(poll_id);
 `);
 
 // Seed title thresholds if empty
