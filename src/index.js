@@ -4,6 +4,7 @@ import "./db.js";
 import { registerCommands } from "./commands.js";
 import { registerPulseHandler } from "./pulseHandler.js";
 import { registerCardSystem } from "./cardSystem.js";
+import { registerPollSystem } from "./pollSystem.js";
 import { registerKeywordHandler } from "./keywordHandler.js";
 import { registerWelcome } from "./welcome.js";
 import { startScheduler } from "./scheduler.js";
@@ -36,6 +37,7 @@ registerWelcome({ bot });
 registerKeywordHandler({ bot });
 registerPulseHandler({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
 registerCardSystem({ bot, groupChatId: GROUP_CHAT_ID, founderUserId: FOUNDER_USER_ID });
+registerPollSystem({ bot, founderUserId: FOUNDER_USER_ID });
 
 bot.catch((err, ctx) => {
   console.error(`[bot error] for update ${ctx.updateType}:`, err.message);
