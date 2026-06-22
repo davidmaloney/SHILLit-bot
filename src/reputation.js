@@ -83,6 +83,54 @@ export function awardConviction(userId, username, amount) {
   };
 }
 
+// Deducts Conviction (e.g. the cost of creating a poll). Returns
+// { ok: false } if the user can't afford it, without changing anything.
+// On success, re-evaluates the title DOWNWARD and strips any role the
+// user no longer qualifies for — spending has real consequences, so
+// points can't be burned endlessly with no cost to standing.
+export function spendConviction(userId, username, amount) {
+  const user = getOrCreateUser(userId, username);
+  if (user.conviction_score < amount) {
+    return { ok: false, user, shortfall: amount - user.conviction_score };
+  }
+  const now = Date.now();
+  const newScore = user.conviction_score - amount;
+  const oldTitleRow = titleForScore(user.conviction_score);
+  const newTitleRow = titleForScore(newScore);
+
+  db.prepare(
+    "UPDATE users SET conviction_score = ?, title = ?, last_seen = ? WHERE user_id = ?"
+  ).run(newScore, newTitleRow.title_name, now, userId);
+
+  // If the new (lower) title no longer grants the role the user currently
+  // holds, drop them to what they now qualify for. Founder is never
+  // auto-demoted here.
+  let roleChanged = false;
+  let newRole = user.current_role;
+  if (user.current_role !== "founder") {
+    const qualifiesFor = newTitleRow.role_unlock || "member";
+    if ((ROLE_RANK[qualifiesFor] || 0) < (ROLE_RANK[user.current_role] || 0)) {
+      newRole = qualifiesFor;
+      roleChanged = true;
+      db.prepare("UPDATE users SET current_role = ?, role_since = ? WHERE user_id = ?").run(
+        newRole,
+        now,
+        userId
+      );
+    }
+  }
+
+  const leveledDown = newTitleRow.title_name !== oldTitleRow.title_name;
+  return {
+    ok: true,
+    user: db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId),
+    leveledDown,
+    newTitle: leveledDown ? newTitleRow.title_name : null,
+    roleChanged,
+    newRole: roleChanged ? newRole : null,
+  };
+}
+
 // Pulse-specific interaction recording (kept separate table: believers)
 export function recordInteraction(userId, username, pulseId, interactionType) {
   const now = Date.now();
