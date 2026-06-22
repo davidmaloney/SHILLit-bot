@@ -163,11 +163,48 @@ function getLeadingCard(chatId) {
     .get(chatId, REPOST_LIMIT);
 }
 
+// === Card media helper ===
+// The card's attached media can be either a photo or a video, set once
+// via /set_card_image (which accepts both). Editing a card's caption
+// works identically for photo and video messages — only the initial
+// SEND differs (sendPhoto vs sendVideo) — so this helper centralizes
+// "what media is set, and how should it be sent" in one place. A media
+// set before this feature existed has no stored type and safely defaults
+// to "photo", so existing setups keep working untouched.
+function getCardMedia() {
+  const fileId = getSetting("card_image_file_id");
+  if (!fileId) return null;
+  const type = getSetting("card_image_type") || "photo";
+  return { fileId, type };
+}
+
+async function sendCardMedia(bot, chatId, media, caption, keyboard, plainOnly = false) {
+  const opts = plainOnly
+    ? { caption, reply_markup: keyboard }
+    : { caption, parse_mode: "HTML", reply_markup: keyboard };
+  if (media.type === "video") {
+    return bot.telegram.sendVideo(chatId, media.fileId, opts);
+  }
+  return bot.telegram.sendPhoto(chatId, media.fileId, opts);
+}
+
+async function replyCardMedia(ctx, media, caption, keyboard, plainOnly = false) {
+  const opts = plainOnly
+    ? { caption, reply_markup: keyboard }
+    : { caption, parse_mode: "HTML", reply_markup: keyboard };
+  if (media.type === "video") {
+    return ctx.replyWithVideo(media.fileId, opts);
+  }
+  return ctx.replyWithPhoto(media.fileId, opts);
+}
+
 // === Rendering ===
 // One function edits an existing card message in place, one function
 // posts a brand new one. Both handle the image/no-image and
 // HTML/plain-text-fallback branching identically, since both stages
-// share the same caption/keyboard builders above.
+// share the same caption/keyboard builders above. Caption editing works
+// the same for photo and video, so editCardMessage needs no media-type
+// branching — only the initial send differs.
 
 async function editCardMessage(bot, card) {
   const caption = buildCaption(card, isMostVotedActiveCard(card));
@@ -210,16 +247,12 @@ async function editCardMessage(bot, card) {
 async function sendNewCardMessage(bot, chatId, card, prefix = "") {
   const caption = `${prefix}${buildCaption(card, isMostVotedActiveCard(card))}`;
   const keyboard = buildKeyboard(card);
-  const cardImageFileId = card.has_image ? getSetting("card_image_file_id") : null;
+  const media = card.has_image ? getCardMedia() : null;
 
   let sent = null;
   try {
-    if (cardImageFileId) {
-      sent = await bot.telegram.sendPhoto(chatId, cardImageFileId, {
-        caption,
-        parse_mode: "HTML",
-        reply_markup: keyboard,
-      });
+    if (media) {
+      sent = await sendCardMedia(bot, chatId, media, caption, keyboard);
     } else {
       sent = await bot.telegram.sendMessage(chatId, caption, {
         parse_mode: "HTML",
@@ -231,11 +264,8 @@ async function sendNewCardMessage(bot, chatId, card, prefix = "") {
     console.warn("[cardSystem] send failed, retrying as plain text:", err.message);
     try {
       const plain = `${prefix}${stripHtml(buildCaption(card, isMostVotedActiveCard(card)))}`;
-      if (cardImageFileId) {
-        sent = await bot.telegram.sendPhoto(chatId, cardImageFileId, {
-          caption: plain,
-          reply_markup: keyboard,
-        });
+      if (media) {
+        sent = await sendCardMedia(bot, chatId, media, plain, keyboard, true);
       } else {
         sent = await bot.telegram.sendMessage(chatId, plain, {
           reply_markup: keyboard,
@@ -359,8 +389,8 @@ async function handleNewCardSubmission(ctx, url, fullText, founderUserId) {
   const chatId = ctx.chat.id;
   const now = Date.now();
   const expiresAt = now + CARD_EXPIRY_MIN * 60 * 1000;
-  const cardImageFileId = getSetting("card_image_file_id");
-  const hasImageFlag = cardImageFileId ? 1 : 0;
+  const media = getCardMedia();
+  const hasImageFlag = media ? 1 : 0;
 
   const insert = db.prepare(
     `INSERT INTO raid_cards (chat_id, posted_by, posted_by_username, url, comment_text, stage, vote_count, created_at, expires_at, has_image, repost_count)
@@ -383,12 +413,8 @@ async function handleNewCardSubmission(ctx, url, fullText, founderUserId) {
 
   let sent = null;
   try {
-    if (cardImageFileId) {
-      sent = await ctx.replyWithPhoto(cardImageFileId, {
-        caption,
-        parse_mode: "HTML",
-        reply_markup: keyboard,
-      });
+    if (media) {
+      sent = await replyCardMedia(ctx, media, caption, keyboard);
     } else {
       sent = await ctx.reply(caption, {
         parse_mode: "HTML",
@@ -400,8 +426,8 @@ async function handleNewCardSubmission(ctx, url, fullText, founderUserId) {
     console.warn("[cardSystem] failed to post new card, retrying as plain text:", err.message);
     try {
       const plain = stripHtml(caption);
-      if (cardImageFileId) {
-        sent = await ctx.replyWithPhoto(cardImageFileId, { caption: plain, reply_markup: keyboard });
+      if (media) {
+        sent = await replyCardMedia(ctx, media, plain, keyboard, true);
       } else {
         sent = await ctx.reply(plain, { reply_markup: keyboard, disable_web_page_preview: true });
       }
