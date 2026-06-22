@@ -37,12 +37,13 @@ export function registerPulseHandler({ bot, groupChatId, founderUserId }) {
 
     // Visible confirmation posted in the group, since the small native
     // popup proved unreliable for some users. Short single line, shows
-    // the actual points just gained and their running total.
+    // the actual points just gained and their running total. Alpha Pulses
+    // get a distinct, louder line so catching one feels like a score.
     try {
-      await bot.telegram.sendMessage(
-        groupChatId,
-        `@${username || userId} is in. +${result.gain} Conviction → ${result.user.conviction_score} total.`
-      );
+      const line = result.isAlpha
+        ? `⚡ @${username || userId} caught the ALPHA PULSE. +${result.gain} Conviction → ${result.user.conviction_score} total.`
+        : `@${username || userId} is in. +${result.gain} Conviction → ${result.user.conviction_score} total.`;
+      await bot.telegram.sendMessage(groupChatId, line);
     } catch (err) {
       console.error("[pulseHandler] confirmation message failed:", err.message);
     }
