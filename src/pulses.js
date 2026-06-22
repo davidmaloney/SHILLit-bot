@@ -56,7 +56,24 @@ export const PULSE_TEMPLATES = [
     text: "This Pulse should not exist. It is already expiring.",
     buttons: SINGLE_BUTTON,
   },
+  {
+    // Alpha Pulse — the rarest tier. Fires very infrequently (lowest
+    // weight) and awards bonus Conviction when caught, so being quick on
+    // one feels like genuinely catching alpha. Identified by this exact
+    // type string in the points logic.
+    type: "alpha_pulse",
+    rarity: "alpha",
+    weight: 1,
+    text: "⚡ ALPHA PULSE ⚡\nThis one's rare. If you're seeing it, you're early. Move.",
+    buttons: SINGLE_BUTTON,
+  },
 ];
+
+// Bonus Conviction added on top of the normal tap reward when the Pulse
+// caught is an Alpha Pulse. Kept here next to the template so the special
+// behaviour is defined in one place.
+export const ALPHA_PULSE_TYPE = "alpha_pulse";
+export const ALPHA_PULSE_BONUS = 5;
 
 export function pickPulseTemplate() {
   const totalWeight = PULSE_TEMPLATES.reduce((sum, t) => sum + t.weight, 0);
