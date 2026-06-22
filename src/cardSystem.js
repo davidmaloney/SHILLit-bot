@@ -16,6 +16,15 @@ const REPOST_EVERY_N = parseInt(process.env.REPOST_EVERY_N_MESSAGES || "15", 10)
 // One shared cap for the whole life of a card, voting or raid — replaces
 // the old two-counter design where only raid boxes had a limit.
 const REPOST_LIMIT = parseInt(process.env.RAID_REPOST_LIMIT || "5", 10);
+// Bonus Conviction awarded to the person who POSTED a card, but only when
+// that card actually crosses the vote threshold and becomes a live raid —
+// rewarding starting something the community genuinely backed, not just
+// posting links. Awarded once per card, at the moment of transition.
+const RAID_STARTER_BONUS = parseInt(process.env.RAID_STARTER_BONUS || "3", 10);
+
+// A subtle standing nudge shown on active voting and raid cards (not on
+// closed ones), reminding people that starting raids is within reach.
+const DIAMOND_NUDGE = "💎 Anyone Diamond Hand+ can start raids — it doesn't take long to get there";
 
 const RECOGNITION_TITLES = new Set([
   "Diamond Hand",
@@ -87,7 +96,8 @@ function buildCaption(card, isHot) {
       `💬 <b>Their comment:</b>\n${comment}\n\n` +
       believeLine +
       timeLine +
-      `👉 <a href="${escapeHtml(card.url)}">Tap here to raid</a>`
+      `👉 <a href="${escapeHtml(card.url)}">Tap here to raid</a>\n\n` +
+      DIAMOND_NUDGE
     );
   }
 
@@ -98,7 +108,7 @@ function buildCaption(card, isHot) {
     `<b>Comment Raid</b>${heat}\n\n` +
     `💬 <b>Their comment:</b>\n${comment}\n\n` +
     `🗳️ Votes: ${card.vote_count}/${VOTE_THRESHOLD}\n\n` +
-    `<a href="${escapeHtml(card.url)}">Open on X</a>`
+    DIAMOND_NUDGE
   );
 }
 
@@ -128,6 +138,18 @@ function buildKeyboard(card) {
 
 function getCard(cardId) {
   return db.prepare("SELECT * FROM raid_cards WHERE card_id = ?").get(cardId);
+}
+
+// Awards the raid-starter bonus to whoever posted the card, called once
+// at the moment a card becomes a live raid. Guards against a missing
+// poster id (older cards) so it can never throw.
+function awardRaidStarterBonus(card) {
+  if (!card || !card.posted_by || RAID_STARTER_BONUS <= 0) return;
+  try {
+    awardConviction(card.posted_by, card.posted_by_username || null, RAID_STARTER_BONUS);
+  } catch (err) {
+    console.warn("[cardSystem] failed to award raid-starter bonus:", err.message);
+  }
 }
 
 function isMostVotedActiveCard(card) {
@@ -524,6 +546,7 @@ async function handleVote(bot, ctx, groupChatId, founderUserId) {
 
   if (updatedCard.stage === "raid" && updatedCard.raid_started_at === now) {
     // This specific call is the one that triggered the transition.
+    awardRaidStarterBonus(updatedCard);
     await editCardMessage(bot, updatedCard);
     if (founderUserId) {
       try {
@@ -585,11 +608,18 @@ export async function sweepExpiredCards(bot, founderUserId) {
     .prepare("SELECT * FROM raid_cards WHERE stage = 'voting' AND vote_count >= ?")
     .all(VOTE_THRESHOLD);
   for (const card of stuckCards) {
-    db.prepare(
-      "UPDATE raid_cards SET stage = 'raid', raid_started_at = ? WHERE card_id = ? AND stage = 'voting'"
-    ).run(now, card.card_id);
+    const flip = db
+      .prepare(
+        "UPDATE raid_cards SET stage = 'raid', raid_started_at = ? WHERE card_id = ? AND stage = 'voting'"
+      )
+      .run(now, card.card_id);
+    // Only proceed if THIS statement actually performed the transition.
+    // If another path (a live vote) flipped it a moment earlier, changes
+    // is 0 and we skip — so the bonus and notification never double-fire.
+    if (flip.changes === 0) continue;
     const raidCard = getCard(card.card_id);
     if (raidCard && raidCard.stage === "raid") {
+      awardRaidStarterBonus(raidCard);
       await editCardMessage(bot, raidCard);
       if (founderUserId) {
         try {
