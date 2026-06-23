@@ -96,9 +96,13 @@ function buildCaption(card, isHot) {
 
     const minsLeft = raidMinutesRemaining(card);
     const timeLine = `⏳ Closes in ${minsLeft} minute${minsLeft === 1 ? "" : "s"}\n\n`;
+    const starter = card.posted_by_username
+      ? `@${escapeHtml(card.posted_by_username)}`
+      : "The starter";
     return (
       `<b>⚔ RAID ACTIVE</b>\n\n` +
-      `💬 <b>Their comment:</b>\n${comment}\n\n` +
+      `💬 <b>${starter} said:</b>\n${comment}\n\n` +
+      `🏆 +${RAID_STARTER_BONUS} Conviction earned for starting this raid!\n\n` +
       believeLine +
       timeLine +
       `👉 <a href="${escapeHtml(card.url)}">Tap here to raid</a>\n\n` +
