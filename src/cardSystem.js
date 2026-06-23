@@ -1,5 +1,5 @@
 import db, { getSetting } from "./db.js";
-import { awardConviction, userMeetsTitleRank } from "./reputation.js";
+import { awardConviction, userMeetsTitleRank, spendConviction } from "./reputation.js";
 
 // === Configuration ===
 const X_URL_REGEX = /(https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[^\s]+)/i;
@@ -20,7 +20,12 @@ const REPOST_LIMIT = parseInt(process.env.RAID_REPOST_LIMIT || "5", 10);
 // that card actually crosses the vote threshold and becomes a live raid —
 // rewarding starting something the community genuinely backed, not just
 // posting links. Awarded once per card, at the moment of transition.
-const RAID_STARTER_BONUS = parseInt(process.env.RAID_STARTER_BONUS || "3", 10);
+const RAID_STARTER_BONUS = parseInt(process.env.RAID_STARTER_BONUS || "10", 10);
+// Cost in Conviction for anyone to boost a live raid back to the top of
+// the chat. Spending is real (can lower the booster's rank if it drops
+// them below a threshold). Reuses the existing repost path so it can't
+// reintroduce any edit/repost issues.
+const BOOST_COST = parseInt(process.env.BOOST_COST || "8", 10);
 
 // A subtle standing nudge shown on active voting and raid cards (not on
 // closed ones), reminding people that starting raids is within reach.
@@ -118,10 +123,15 @@ function buildKeyboard(card) {
       return { inline_keyboard: [] };
     }
     // The raid link lives directly in the caption text as a tappable
-    // HTML link. The only button is Remove, so moderation stays possible
-    // after a card becomes a live raid.
+    // HTML link. Buttons: Boost (anyone, costs Conviction, pushes the
+    // raid back to the top) and Remove (moderation).
     return {
-      inline_keyboard: [[{ text: "🗑️ Remove", callback_data: `cardremove:${card.card_id}` }]],
+      inline_keyboard: [
+        [
+          { text: `🚀 Boost (${BOOST_COST})`, callback_data: `boost:${card.card_id}` },
+          { text: "🗑️ Remove", callback_data: `cardremove:${card.card_id}` },
+        ],
+      ],
     };
   }
   return {
@@ -352,6 +362,11 @@ export function registerCardSystem({ bot, groupChatId, founderUserId }) {
 
     if (data.startsWith("cardremove:")) {
       await handleRemove(bot, ctx, founderUserId);
+      return;
+    }
+
+    if (data.startsWith("boost:")) {
+      await handleBoost(bot, ctx);
       return;
     }
 
@@ -601,6 +616,43 @@ async function handleRemove(bot, ctx, founderUserId) {
   }
 
   await ctx.answerCbQuery("Removed.");
+}
+
+async function handleBoost(bot, ctx) {
+  const data = ctx.callbackQuery.data;
+  const cardId = parseInt(data.split(":")[1], 10);
+  const userId = ctx.from.id;
+  const username = ctx.from.username;
+
+  const card = getCard(cardId);
+  if (!card || card.stage !== "raid" || isRaidClosed(card)) {
+    await ctx.answerCbQuery("This raid can't be boosted anymore.");
+    return;
+  }
+
+  // Charge first. If they can't afford it, nothing happens.
+  const spend = spendConviction(userId, username, BOOST_COST);
+  if (!spend.ok) {
+    await ctx.answerCbQuery(
+      `Boosting costs ${BOOST_COST} Conviction — you're ${spend.shortfall} short.`,
+      { show_alert: true }
+    );
+    return;
+  }
+
+  await ctx.answerCbQuery(`Boosted! −${BOOST_COST} Conviction.`);
+
+  // Reuse the exact repost path that already works — disables the old
+  // copy's buttons and posts a fresh copy at the bottom. No new
+  // edit/repost logic, so this can't reintroduce past issues. The boost
+  // does not count against REPOST_LIMIT here because it's a paid, manual
+  // action — but repost_count still increments, which naturally caps
+  // runaway boosting on a single card.
+  try {
+    await repostCard(bot, card);
+  } catch (err) {
+    console.warn("[cardSystem] boost repost failed:", err.message);
+  }
 }
 
 // === Expiry sweep (called from scheduler.js) ===
