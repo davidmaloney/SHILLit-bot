@@ -134,6 +134,32 @@ export function registerCommands({ bot, groupChatId, founderUserId }) {
     );
   });
 
+  // Hidden: sets the welcome video shown when new members join. Separate
+  // command and separate storage key (welcome_video_file_id) from the
+  // card media, so the two never interfere. Same Founder/Council gate.
+  bot.command("set_welcome_video", async (ctx) => {
+    const userId = ctx.from.id;
+    const isFounderUser = isFounder(ctx, founderUserId);
+    const qualifies = userMeetsTitleRank(userId, TOP_TITLE);
+
+    if (!isFounderUser && !qualifies) {
+      return;
+    }
+
+    const replied = ctx.message.reply_to_message;
+    const replyVideo = replied?.video || replied?.animation;
+
+    if (replyVideo) {
+      setSetting("welcome_video_file_id", replyVideo.file_id);
+      await ctx.reply("Welcome video updated. New members will see this video.");
+      return;
+    }
+
+    await ctx.reply(
+      "Reply to a video with /set_welcome_video to set it as the welcome video."
+    );
+  });
+
   // --- Admin commands ---
 
   bot.command("force_pulse", async (ctx) => {
