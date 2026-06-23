@@ -137,9 +137,12 @@ if (titleCount === 0) {
     { title: "Shill Initiate", threshold: 5, role: null },
     { title: "Bag Holder", threshold: 15, role: null },
     { title: "Diamond Hand", threshold: 35, role: "moderator" },
-    { title: "Signal Reader", threshold: 60, role: "moderator" },
-    { title: "Conviction Holder", threshold: 100, role: "admin" },
-    { title: "Council of Shillers", threshold: 160, role: "admin" },
+    { title: "Signal Reader", threshold: 90, role: "moderator" },
+    { title: "Conviction Holder", threshold: 180, role: "admin" },
+    { title: "Whale Watcher", threshold: 320, role: "admin" },
+    { title: "Shill Commander", threshold: 500, role: "admin" },
+    { title: "Apex Shiller", threshold: 750, role: "admin" },
+    { title: "Council of Shillers", threshold: 1000, role: "admin" },
   ]);
 }
 
@@ -170,6 +173,52 @@ try {
   }
 } catch (err) {
   console.error("[db] migration check failed:", err.message);
+}
+
+// Tier rework migration. The titles table is only SEEDED when empty, so
+// databases created before the reworked ladder keep the old thresholds.
+// This brings every install up to the new ladder: it updates thresholds
+// on existing titles and inserts the new mid/high tiers if missing. It
+// NEVER changes any user's stored title or conviction_score, so nobody
+// is demoted — the new thresholds only affect climbing from here on.
+// Idempotent: safe to run every startup.
+try {
+  const desiredTitles = [
+    { title: "Lurker", threshold: 0, role: null },
+    { title: "Shill Initiate", threshold: 5, role: null },
+    { title: "Bag Holder", threshold: 15, role: null },
+    { title: "Diamond Hand", threshold: 35, role: "moderator" },
+    { title: "Signal Reader", threshold: 90, role: "moderator" },
+    { title: "Conviction Holder", threshold: 180, role: "admin" },
+    { title: "Whale Watcher", threshold: 320, role: "admin" },
+    { title: "Shill Commander", threshold: 500, role: "admin" },
+    { title: "Apex Shiller", threshold: 750, role: "admin" },
+    { title: "Council of Shillers", threshold: 1000, role: "admin" },
+  ];
+  const existingCount = db.prepare("SELECT COUNT(*) AS c FROM titles").get().c;
+  // Only run this reconciliation if the table is already populated (fresh
+  // installs get the correct ladder from the seed above and need nothing).
+  if (existingCount > 0) {
+    const upsert = db.transaction((rows) => {
+      for (const row of rows) {
+        const found = db
+          .prepare("SELECT title_name FROM titles WHERE title_name = ?")
+          .get(row.title);
+        if (found) {
+          db.prepare(
+            "UPDATE titles SET threshold = ?, role_unlock = ? WHERE title_name = ?"
+          ).run(row.threshold, row.role, row.title);
+        } else {
+          db.prepare(
+            "INSERT INTO titles (title_name, threshold, role_unlock) VALUES (?, ?, ?)"
+          ).run(row.title, row.threshold, row.role);
+        }
+      }
+    });
+    upsert(desiredTitles);
+  }
+} catch (err) {
+  console.error("[db] tier migration failed:", err.message);
 }
 
 export function getSetting(key) {
