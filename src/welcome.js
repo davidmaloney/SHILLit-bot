@@ -1,4 +1,5 @@
 import { getOrCreateUser } from "./reputation.js";
+import { getSetting } from "./db.js";
 
 export function registerWelcome({ bot }) {
   bot.on("new_chat_members", async (ctx) => {
@@ -16,6 +17,26 @@ export function registerWelcome({ bot }) {
         `🔹 Respect everyone\n` +
         `🔹 No spam or FUD\n\n` +
         `Stay connected with us, let's grow!`;
+
+      // If a welcome video has been set (via /set_welcome_video), send it
+      // with the welcome text as its caption — video on top, text below,
+      // one message. This uses its own isolated setting key and never
+      // touches the raid card media or anything else. If no video is set,
+      // or sending it fails for any reason, fall back to the plain text
+      // welcome exactly as before — so this can never break the greeting.
+      const welcomeVideo = getSetting("welcome_video_file_id");
+
+      if (welcomeVideo) {
+        try {
+          await ctx.replyWithVideo(welcomeVideo, { caption: message });
+          continue;
+        } catch (err) {
+          console.warn(
+            "[welcome] welcome video failed, falling back to text:",
+            err.message
+          );
+        }
+      }
 
       try {
         await ctx.reply(message);
